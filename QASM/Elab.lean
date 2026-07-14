@@ -1,3 +1,20 @@
+    import LiterateLean
+
+    import QASM.Runtime
+    import QASM.Source
+    import QASM.Frontend
+    import QASM.Semantics
+    import QASM.Typing
+    import Lean.Elab.Eval
+
+    open scoped LiterateLean
+
+# OpenQASM elaboration pipeline
+
+`elab_qasm` の本体。パース、include 展開、型検査、ネイティブ Lean 関数
+の生成までを 1 つのコマンドで実行します。
+
+```lean
 import QASM.Runtime
 import QASM.Source
 import QASM.Frontend
@@ -1073,3 +1090,11 @@ unsafe def elaborateQasmFile : CommandElab
 
 end Compiler
 end QASM
+```
+
+<!--
+vim: set filetype=markdown :
+Local Variables:
+mode: markdown
+End:
+-->

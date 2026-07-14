@@ -1,3 +1,13 @@
+    import LiterateLean
+
+    open scoped LiterateLean
+
+# OpenQASM raw block parser for `begin_qasm`
+
+`begin_qasm` / `end_qasm` の行ベース抽出を行い、生文字列を `qasmRaw` として
+取得する低レベルパーサです。
+
+```lean
 import Lean
 
 namespace QASM
@@ -76,3 +86,11 @@ syntax (name := qasmStringTerm) "begin_qasm" qasmRaw : term
   | _ => Macro.throwErrorAt body "invalid raw OpenQASM block"
 
 end QASM
+```
+
+<!--
+vim: set filetype=markdown :
+Local Variables:
+mode: markdown
+End:
+-->

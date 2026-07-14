@@ -1,3 +1,17 @@
+    import LiterateLean
+
+    import QASM.Runtime
+    import QASM.Frontend
+    import QASM.Semantics
+
+    open scoped LiterateLean
+
+# OpenQASM type analysis and checking
+
+OpenQASM の型情報を収集し、定数評価、宣言検証、サブルーチン/ゲートの
+シグネチャ検証を行うモジュールです。
+
+```lean
 import QASM.Runtime
 import QASM.Frontend
 import QASM.Semantics
@@ -826,3 +840,11 @@ def analyzeTypes (target : TargetConfig) (program : SourceProgram) :
   Frontend.analyzeTypes target program
 
 end QASM
+```
+
+<!--
+vim: set filetype=markdown :
+Local Variables:
+mode: markdown
+End:
+-->

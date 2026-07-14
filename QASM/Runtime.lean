@@ -1,3 +1,13 @@
+    import LiterateLean
+
+    open scoped LiterateLean
+
+# Portable OpenQASM runtime model and value carrier
+
+実行時の値キャリア、バックエンド境界、ゲート記録、定数変換、配列変換の
+基盤をまとめたモジュールです。`elab` が生成するコードから使用されます。
+
+```lean
 import Lean
 
 namespace QASM
@@ -940,3 +950,11 @@ structure CheckedProgramInfo where
   deriving Repr, Inhabited
 
 end QASM
+```
+
+<!--
+vim: set filetype=markdown :
+Local Variables:
+mode: markdown
+End:
+-->
