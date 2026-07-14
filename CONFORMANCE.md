@@ -8,7 +8,7 @@ tests pass.
 | Bundle | Status | Contents |
 | --- | --- | --- |
 | Quantum core frontend | Complete (20%) | Lexer, version/include, register declarations, gate calls, measure, reset, barrier, normalized printing |
-| Expressions and types | Planned | Full expressions, scalar/array types, declarations and assignments |
+| Expressions and types | Complete (40%) | Full precedence expression AST, scalar/array types, declarations, assignments, normalized printing and constant checking |
 | Structured execution | Planned | Scopes, control flow, subroutines and extern declarations |
 | Advanced quantum/timing | Planned | Gate definitions/modifiers, timing, calibration syntax, pragmas and annotations |
 | Semantic closure | Planned | Complete static semantics, backend-independent execution and full official fixture audit |

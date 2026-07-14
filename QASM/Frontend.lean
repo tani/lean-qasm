@@ -99,7 +99,7 @@ private def symbols : List String := [
   "**=", "<<=", ">>=", "->", "++", "**", "||", "&&", "==", "!=",
   ">=", "<=", "+=", "-=", "*=", "/=", "&=", "|=", "^=", "%=",
   "<<", ">>", "[", "]", "{", "}", "(", ")", ":", ";", ".", ",",
-  "=", "+", "-", "*", "/", "%", "|", "&", "^", "@", "~", "!"
+  "=", "#", ">", "<", "+", "-", "*", "/", "%", "|", "&", "^", "@", "~", "!"
 ]
 
 private def matchingSymbol? (cursor : LexCursor) : Option String :=
@@ -189,16 +189,54 @@ inductive Operand where
   | hardware (index : Nat)
   deriving Repr, Inhabited, BEq
 
+inductive Literal where
+  | integer (raw : String)
+  | float (raw : String)
+  | imaginary (raw : String)
+  | boolean (value : Bool)
+  | bitstring (value : String)
+  | timing (raw : String)
+  deriving Repr, Inhabited, BEq
+
+inductive Expression where
+  | literal (value : Literal)
+  | identifier (name : String)
+  | hardwareQubit (index : Nat)
+  | unary (operator : String) (operand : Expression)
+  | binary (operator : String) (left right : Expression)
+  | call (name : String) (arguments : Array Expression)
+  | cast (typeName : String) (width : Option Expression) (value : Expression)
+  | index (value : Expression) (indices : Array Expression)
+  | range (start step stop : Option Expression)
+  | set (values : Array Expression)
+  | array (values : Array Expression)
+  deriving Repr, Inhabited, BEq
+
+inductive TypeSpec where
+  | scalar (name : String) (width : Option Expression := none)
+  | array (element : TypeSpec) (dimensions : Array Expression)
+  | arrayRef (mutable : Bool) (element : TypeSpec)
+      (dimensions : Array Expression) (dimensionCount : Option Expression)
+  deriving Repr, Inhabited, BEq
+
 inductive Statement where
   | includeFile (filename : String)
   | qubit (name : String) (size : Nat := 1)
   | bit (name : String) (size : Nat := 1)
   | qreg (name : String) (size : Nat := 1)
   | creg (name : String) (size : Nat := 1)
-  | gateCall (name : String) (parameters : Array String) (operands : Array Operand)
+  | gateCall (name : String) (parameters : Array Expression) (operands : Array Operand)
   | measure (source : Operand) (target : Option Operand)
   | reset (operand : Operand)
   | barrier (operands : Array Operand)
+
+  | classicalDeclaration (type : TypeSpec) (name : String)
+      (initializer : Option Expression)
+  | constDeclaration (type : TypeSpec) (name : String) (value : Expression)
+  | ioDeclaration (input : Bool) (type : TypeSpec) (name : String)
+  | aliasDeclaration (name : String) (value : Expression)
+  | assignment (target : Expression) (operator : String) (value : Expression)
+  | expression (value : Expression)
   deriving Repr, Inhabited, BEq
 
 structure Program where
@@ -243,7 +281,7 @@ private def consume : GrammarParser Token := do
 private def tokenText : TokenKind → String
   | .identifier value | .number value | .symbol value => value
   | .stringLiteral value => s!"\"{value}\""
-  | .hardwareQubit index => s!"${index}"
+  | .hardwareQubit hardwareIndex => s!"${hardwareIndex}"
   | .newline => "\n"
 
 private def kindMatches (expected : String) : TokenKind → Bool
@@ -296,20 +334,152 @@ private partial def parseOperandList (operands : Array Operand := #[]) :
   let operands := operands.push (← parseOperand)
   if ← accept "," then parseOperandList operands else pure operands
 
-private partial def parseParameterTokens (depth : Nat := 0) (current : String := "")
-    (parameters : Array String := #[]) : GrammarParser (Array String) := do
-  let token ← consume
-  match token.kind with
-  | .symbol "(" => parseParameterTokens (depth + 1) (current ++ "(") parameters
-  | .symbol ")" =>
-      if depth == 0 then
-        pure (if current.trimAscii.copy.isEmpty then parameters else parameters.push current.trimAscii.copy)
-      else parseParameterTokens (depth - 1) (current ++ ")") parameters
-  | .symbol "," =>
-      if depth == 0 then parseParameterTokens depth "" (parameters.push current.trimAscii.copy)
-      else parseParameterTokens depth (current ++ ",") parameters
-  | kind => parseParameterTokens depth (current ++ tokenText kind) parameters
 
+private def scalarTypeNames : List String :=
+  ["bit", "int", "uint", "float", "angle", "bool", "duration", "stretch", "complex"]
+
+private def isScalarTypeName (name : String) : Bool := scalarTypeNames.contains name
+
+private def binaryPrecedence : String → Option Nat
+  | "||" => some 1
+  | "&&" => some 2
+  | "|" => some 3
+  | "^" => some 4
+  | "&" => some 5
+  | "==" | "!=" => some 6
+  | ">" | "<" | ">=" | "<=" => some 7
+  | ">>" | "<<" => some 8
+  | "+" | "-" | "++" => some 9
+  | "*" | "/" | "%" => some 10
+  | "**" => some 11
+  | _ => none
+
+private def currentOperator? : GrammarParser (Option (String × Nat)) := do
+  match ← current? with
+  | some ⟨.symbol operator, _⟩ => pure ((binaryPrecedence operator).map (operator, ·))
+  | _ => pure none
+
+private def classifyNumber (raw : String) : Literal :=
+  if raw.endsWith "im" then .imaginary raw
+  else if ["dt", "ns", "us", "µs", "ms", "s"].any (fun unit => raw.endsWith unit) then .timing raw
+  else if raw.contains '.' || raw.contains 'e' || raw.contains 'E' then .float raw
+  else .integer raw
+
+mutual
+  private partial def parseExpression (minimumPrecedence : Nat := 0) :
+      GrammarParser Expression := do
+    let left ← parseUnary
+    parseBinaryRest left minimumPrecedence
+
+  private partial def parseBinaryRest (left : Expression) (minimumPrecedence : Nat) :
+      GrammarParser Expression := do
+    match ← currentOperator? with
+    | some (operator, precedence) =>
+        if precedence < minimumPrecedence then pure left
+        else
+          let _ ← consume
+          let nextMinimum := if operator == "**" then precedence else precedence + 1
+          let right ← parseExpression nextMinimum
+          parseBinaryRest (.binary operator left right) minimumPrecedence
+    | none => pure left
+
+  private partial def parseUnary : GrammarParser Expression := do
+    match ← current? with
+    | some ⟨.symbol operator, _⟩ =>
+        if operator == "~" || operator == "!" || operator == "-" then
+          let _ ← consume
+          pure (.unary operator (← parseUnary))
+        else parsePostfix (← parsePrimary)
+    | _ => parsePostfix (← parsePrimary)
+
+  private partial def parsePrimary : GrammarParser Expression := do
+    match (← consume).kind with
+    | .number raw => pure (.literal (classifyNumber raw))
+    | .stringLiteral value => pure (.literal (.bitstring value))
+    | .hardwareQubit index => pure (.hardwareQubit index)
+    | .identifier "true" => pure (.literal (.boolean true))
+    | .identifier "false" => pure (.literal (.boolean false))
+    | .identifier name =>
+        let saved ← get
+        let width ←
+          if isScalarTypeName name && (← accept "[") then
+            let width ← parseExpression
+            expect "]"
+            pure (some width)
+          else pure none
+        if isScalarTypeName name && (← accept "(") then
+          let value ← parseExpression
+          expect ")"
+          pure (.cast name width value)
+        else
+          set saved
+          if ← accept "(" then
+            pure (.call name (← parseExpressionList ")"))
+          else pure (.identifier name)
+    | .symbol "(" =>
+        let value ← parseExpression
+        expect ")"
+        pure value
+    | .symbol "{" => pure (.array (← parseExpressionList "}"))
+    | _ => failAtCurrent "expected expression"
+
+  private partial def parsePostfix (value : Expression) : GrammarParser Expression := do
+    if ← accept "[" then
+      let indices ← parseExpressionList "]"
+      parsePostfix (.index value indices)
+    else pure value
+
+  private partial def parseExpressionList (terminator : String)
+      (values : Array Expression := #[]) : GrammarParser (Array Expression) := do
+    if ← accept terminator then pure values
+    else
+      let values := values.push (← parseExpression)
+      if ← accept "," then parseExpressionList terminator values
+      else
+        expect terminator
+        pure values
+end
+
+private partial def parseType : GrammarParser TypeSpec := do
+  let name ← parseIdentifier
+  if name == "array" then
+    expect "["
+    let element ← parseType
+    expect ","
+    let dimensions ← parseExpressionList "]"
+    pure (.array element dimensions)
+  else if name == "readonly" || name == "mutable" then
+    let mutable := name == "mutable"
+    let arrayName ← parseIdentifier
+    unless arrayName == "array" do failAtCurrent "expected array reference type"
+    expect "["
+    let element ← parseType
+    expect ","
+    if ← accept "#" then
+      expect "dim"
+      expect "="
+      let count ← parseExpression
+      expect "]"
+      pure (.arrayRef mutable element #[] (some count))
+    else
+      pure (.arrayRef mutable element (← parseExpressionList "]") none)
+  else if isScalarTypeName name then
+    let width ← if ← accept "[" then
+      let value ← parseExpression
+      expect "]"
+      pure (some value)
+    else pure none
+    pure (.scalar name width)
+  else failAtCurrent s!"unknown OpenQASM type '{name}'"
+
+private def assignmentOperators : List String :=
+  ["=", "+=", "-=", "*=", "/=", "&=", "|=", "^=", "<<=", ">>=", "%=", "**="]
+
+private def currentAssignmentOperator? : GrammarParser (Option String) := do
+  match ← current? with
+  | some ⟨.symbol operator, _⟩ =>
+      pure (if assignmentOperators.contains operator then some operator else none)
+  | _ => pure none
 private def parseVersion? : GrammarParser (Option Version) := do
   if ← accept "OPENQASM" then
     let raw ← match (← consume).kind with
@@ -345,9 +515,16 @@ private def parseStatement : GrammarParser Statement := do
       expect ";"
       pure (.includeFile filename)
   | some ⟨.identifier "qubit", _⟩ => let _ ← consume; parseDeclaration true false
-  | some ⟨.identifier "bit", _⟩ => let _ ← consume; parseDeclaration false false
   | some ⟨.identifier "qreg", _⟩ => let _ ← consume; parseDeclaration true true
   | some ⟨.identifier "creg", _⟩ => let _ ← consume; parseDeclaration false true
+  | some ⟨.identifier "const", _⟩ =>
+      let _ ← consume
+      let type ← parseType
+      let name ← parseIdentifier
+      expect "="
+      let value ← parseExpression
+      expect ";"
+      pure (.constDeclaration type name value)
   | some ⟨.identifier "measure", _⟩ =>
       let _ ← consume
       let source ← parseOperand
@@ -366,13 +543,49 @@ private def parseStatement : GrammarParser Statement := do
         let operands ← parseOperandList
         expect ";"
         pure (.barrier operands)
-  | some ⟨.identifier name, _⟩ =>
-      let _ ← consume
-      let parameters ← if ← accept "(" then parseParameterTokens else pure #[]
-      let operands ← parseOperandList
-      expect ";"
-      pure (.gateCall name parameters operands)
-  | _ => failAtCurrent "unsupported OpenQASM statement in the 20% frontend"
+  | some ⟨.identifier direction, _⟩ =>
+      if direction == "input" || direction == "output" then
+        let _ ← consume
+        let type ← parseType
+        let name ← parseIdentifier
+        expect ";"
+        pure (.ioDeclaration (direction == "input") type name)
+      else if direction == "let" then
+        let _ ← consume
+        let name ← parseIdentifier
+        expect "="
+        let value ← parseExpression
+        expect ";"
+        pure (.aliasDeclaration name value)
+      else if isScalarTypeName direction || direction == "array" then
+        let type ← parseType
+        let name ← parseIdentifier
+        let initializer ← if ← accept "=" then some <$> parseExpression else pure none
+        expect ";"
+        pure (.classicalDeclaration type name initializer)
+      else parseIdentifierLedStatement
+  | _ => failAtCurrent "unsupported OpenQASM statement in the 40% frontend"
+
+where
+  parseIdentifierLedStatement : GrammarParser Statement := do
+    let saved ← get
+    let candidate ← parseExpression
+    match ← currentAssignmentOperator? with
+    | some operator =>
+        let _ ← consume
+        let value ← parseExpression
+        expect ";"
+        pure (.assignment candidate operator value)
+    | none =>
+        if ← accept ";" then pure (.expression candidate)
+        else
+          set saved
+          let name ← parseIdentifier
+          let parameters ← if ← accept "(" then parseExpressionList ")" else pure #[]
+          let operands ← parseOperandList
+          expect ";"
+          pure (.gateCall name parameters operands)
+
 
 private partial def parseStatements (statements : Array Statement := #[]) :
     GrammarParser (Array Statement) := do
@@ -397,6 +610,46 @@ private def Operand.toQasm : Operand → String
 private def joinOperands (operands : Array Operand) : String :=
   String.intercalate ", " (operands.toList.map Operand.toQasm)
 
+
+private def Literal.toQasm : Literal → String
+  | .integer raw | .float raw | .imaginary raw | .timing raw => raw
+  | .boolean true => "true"
+  | .boolean false => "false"
+  | .bitstring value => s!"\"{value}\""
+
+partial def Expression.toQasm : Expression → String
+  | .literal value => value.toQasm
+  | .identifier name => name
+  | .hardwareQubit hardwareIndex => s!"${hardwareIndex}"
+  | .unary operator operand => s!"{operator}{operand.toQasm}"
+  | .binary operator left right => s!"({left.toQasm} {operator} {right.toQasm})"
+  | .call name arguments =>
+      s!"{name}({String.intercalate ", " (arguments.toList.map Expression.toQasm)})"
+  | .cast name width value =>
+      let width := width.map (fun width => s!"[{width.toQasm}]") |>.getD ""
+      s!"{name}{width}({value.toQasm})"
+  | .index value indices =>
+      s!"{value.toQasm}[{String.intercalate ", " (indices.toList.map Expression.toQasm)}]"
+  | .range start step stop =>
+      let start := start.map Expression.toQasm |>.getD ""
+      let stop := stop.map Expression.toQasm |>.getD ""
+      match step with
+      | none => s!"{start}:{stop}"
+      | some step => s!"{start}:{step.toQasm}:{stop}"
+  | .set values => "{" ++ String.intercalate ", " (values.toList.map Expression.toQasm) ++ "}"
+  | .array values => "{" ++ String.intercalate ", " (values.toList.map Expression.toQasm) ++ "}"
+
+partial def TypeSpec.toQasm : TypeSpec → String
+  | .scalar name none => name
+  | .scalar name (some width) => s!"{name}[{width.toQasm}]"
+  | .array element dimensions =>
+      s!"array[{element.toQasm}, {String.intercalate ", " (dimensions.toList.map Expression.toQasm)}]"
+  | .arrayRef mutable element dimensions none =>
+      let qualifier := if mutable then "mutable" else "readonly"
+      s!"{qualifier} array[{element.toQasm}, {String.intercalate ", " (dimensions.toList.map Expression.toQasm)}]"
+  | .arrayRef mutable element _ (some count) =>
+      let qualifier := if mutable then "mutable" else "readonly"
+      s!"{qualifier} array[{element.toQasm}, #dim={count.toQasm}]"
 def Statement.toQasm : Statement → String
   | .includeFile filename => s!"include \"{filename}\";"
   | .qubit name 1 => s!"qubit {name};"
@@ -409,13 +662,22 @@ def Statement.toQasm : Statement → String
   | .creg name size => s!"creg {name}[{size}];"
   | .gateCall name parameters operands =>
       let parameters := if parameters.isEmpty then ""
-        else s!"({String.intercalate ", " parameters.toList})"
+        else s!"({String.intercalate ", " (parameters.toList.map Expression.toQasm)})"
       s!"{name}{parameters} {joinOperands operands};"
   | .measure source none => s!"measure {source.toQasm};"
   | .measure source (some target) => s!"measure {source.toQasm} -> {target.toQasm};"
   | .reset operand => s!"reset {operand.toQasm};"
   | .barrier operands => if operands.isEmpty then "barrier;"
       else s!"barrier {joinOperands operands};"
+  | .classicalDeclaration type name none => s!"{type.toQasm} {name};"
+  | .classicalDeclaration type name (some initializer) =>
+      s!"{type.toQasm} {name} = {initializer.toQasm};"
+  | .constDeclaration type name value => s!"const {type.toQasm} {name} = {value.toQasm};"
+  | .ioDeclaration input type name =>
+      s!"{if input then "input" else "output"} {type.toQasm} {name};"
+  | .aliasDeclaration name value => s!"let {name} = {value.toQasm};"
+  | .assignment target operator value => s!"{target.toQasm} {operator} {value.toQasm};"
+  | .expression value => s!"{value.toQasm};"
 
 def Program.toQasm (program : Program) : String :=
   let version := program.version.map (fun v => s!"OPENQASM {v.major}.{v.minor};")

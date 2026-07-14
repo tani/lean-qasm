@@ -182,6 +182,29 @@ private def testFrontend20 : IO Unit := do
   | .error error => throw (IO.userError s!"version-optional parse failed: {error}")
   | .ok program => assertTrue program.version.isNone "version should be optional"
 
+private def testFrontend40 : IO Unit := do
+  let source :=
+    "OPENQASM 3.0;\n" ++
+    "const int[32] n = 2 + 3 * 4;\n" ++
+    "input angle[64] theta;\n" ++
+    "bit[4] c = \"0011\";\n" ++
+    "uint[8] x = int[8](n) << 1;\n" ++
+    "let low = c[0];\n" ++
+    "x += 2;\n" ++
+    "foo(n, theta);"
+  match QASM.parse source with
+  | .error error => throw (IO.userError s!"40% frontend parse failed: {error}")
+  | .ok program =>
+      assertTrue (program.statements.size == 7) "40% frontend statement count mismatch"
+      match QASM.parse program.toQasm with
+      | .error error => throw (IO.userError s!"40% frontend round trip failed: {error}")
+      | .ok reparsed => assertTrue (reparsed == program) "40% frontend round trip mismatch"
+      match QASM.check program with
+      | .error diagnostics =>
+          throw (IO.userError s!"40% semantic check failed: {repr diagnostics}")
+      | .ok checked =>
+          assertTrue (checked.constants.length == 1) "constant environment mismatch"
+
 def run : IO Unit := do
   testValidation
   testPrettyPrinting
@@ -189,6 +212,7 @@ def run : IO Unit := do
   testBellMeasurement
   testRuntimeError
   testFrontend20
+  testFrontend40
 
 end QASMTests
 
