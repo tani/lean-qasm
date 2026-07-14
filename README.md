@@ -19,9 +19,9 @@ Import the library and construct a program with the `qasm` syntax:
 ```lean
 import QASM
 
-open Qasm
+open QASM
 
-def bell : Qasm.Program :=
+def bell : QASM.Program :=
   qasm {
     OPENQASM 3.0;
     include "stdgates.inc";
@@ -54,8 +54,8 @@ exploring the documented examples:
 ```lean
 import QASM.Guide
 
-#check Qasm.Guide.bell
-#check Qasm.Guide.runBell
+#check QASM.Guide.bell
+#check QASM.Guide.runBell
 ```
 
 ## Acknowledgements

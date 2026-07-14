@@ -2,7 +2,7 @@ import QASM
 
 namespace QASMTests
 
-open Qasm
+open QASM
 
 private def assertTrue (condition : Bool) (message : String) : IO Unit :=
   unless condition do
@@ -25,7 +25,7 @@ private def assertOk (actual : Except String Unit) (message : String) : IO Unit 
   | .error error =>
       throw (IO.userError s!"{message}: {error}")
 
-private def bell : Qasm.Program :=
+private def bell : QASM.Program :=
   qasm {
     OPENQASM 3.0;
     include "stdgates.inc";
@@ -40,14 +40,14 @@ private def bell : Qasm.Program :=
     measure q[1] -> c[1];
   }
 
-private def xProgram : Qasm.Program :=
+private def xProgram : QASM.Program :=
   qasm {
     OPENQASM 3.0;
     qubit[1] q;
     x q[0];
   }
 
-private def unsupportedGateProgram : Qasm.Program :=
+private def unsupportedGateProgram : QASM.Program :=
   qasm {
     OPENQASM 3.0;
     qubit[1] q;
@@ -65,47 +65,47 @@ private def expectedBellQasm : String :=
   "measure q[1] -> c[1];"
 
 private def testValidation : IO Unit := do
-  assertTrue (Qasm.isValidIdentifier "_q2") "ASCII subset identifier should validate"
-  assertTrue (!Qasm.isValidIdentifier "im") "lexer token im should be reserved"
+  assertTrue (QASM.isValidIdentifier "_q2") "ASCII subset identifier should validate"
+  assertTrue (!QASM.isValidIdentifier "im") "lexer token im should be reserved"
   assertTrue
-    (!Qasm.isValidIncludeFilename "bad\nfile")
+    (!QASM.isValidIncludeFilename "bad\nfile")
     "include filenames should reject newlines"
   assertTrue
-    (!Qasm.isValidIncludeFilename "bad\tfile")
+    (!QASM.isValidIncludeFilename "bad\tfile")
     "include filenames should reject tabs"
   assertOk bell.validate "the Bell program should validate"
   assertError
-    (Qasm.Program.validate ([] : Qasm.Program))
+    (QASM.Program.validate ([] : QASM.Program))
     "empty OpenQASM program"
   assertError
-    (Qasm.Program.validate ([Qasm.Stmt.qubit "q" 1] : Qasm.Program))
+    (QASM.Program.validate ([QASM.Stmt.qubit "q" 1] : QASM.Program))
     "the first statement must be `OPENQASM 3.0;`"
   assertError
-    (Qasm.Program.validate [Qasm.Stmt.version 2 0])
+    (QASM.Program.validate [QASM.Stmt.version 2 0])
     "unsupported OpenQASM version: 2.0"
   assertError
-    (Qasm.Program.validate [Qasm.Stmt.version 3 0, Qasm.Stmt.version 3 0])
+    (QASM.Program.validate [QASM.Stmt.version 3 0, QASM.Stmt.version 3 0])
     "duplicate OpenQASM version declaration"
   assertError
-    (Qasm.Program.validate [Qasm.Stmt.version 3 0, Qasm.Stmt.qubit "bad-name" 1])
+    (QASM.Program.validate [QASM.Stmt.version 3 0, QASM.Stmt.qubit "bad-name" 1])
     "invalid OpenQASM identifier: bad-name"
   assertError
-    (Qasm.Program.validate [Qasm.Stmt.version 3 0, Qasm.Stmt.qubit "measure" 1])
+    (QASM.Program.validate [QASM.Stmt.version 3 0, QASM.Stmt.qubit "measure" 1])
     "invalid OpenQASM identifier: measure"
   assertError
-    (Qasm.Program.validate [Qasm.Stmt.version 3 0, Qasm.Stmt.qubit "im" 1])
+    (QASM.Program.validate [QASM.Stmt.version 3 0, QASM.Stmt.qubit "im" 1])
     "invalid OpenQASM identifier: im"
   assertError
-    (Qasm.Program.validate [Qasm.Stmt.version 3 0, Qasm.Stmt.includeFile ""])
+    (QASM.Program.validate [QASM.Stmt.version 3 0, QASM.Stmt.includeFile ""])
     "invalid OpenQASM include filename: "
   assertError
-    (Qasm.Program.validate [Qasm.Stmt.version 3 0, Qasm.Stmt.includeFile "bad\"file"])
+    (QASM.Program.validate [QASM.Stmt.version 3 0, QASM.Stmt.includeFile "bad\"file"])
     "invalid OpenQASM include filename: bad\"file"
   assertError
-    (Qasm.Program.validate [
-      Qasm.Stmt.version 3 0,
-      Qasm.Stmt.qubit "q" 1,
-      Qasm.Stmt.gate1 "bad-gate" ⟨"q", none⟩
+    (QASM.Program.validate [
+      QASM.Stmt.version 3 0,
+      QASM.Stmt.qubit "q" 1,
+      QASM.Stmt.gate1 "bad-gate" ⟨"q", none⟩
     ])
     "invalid OpenQASM identifier: bad-gate"
 
@@ -117,7 +117,7 @@ private def testPrettyPrinting : IO Unit := do
       assertTrue (source == expectedBellQasm) "Bell program pretty-print mismatch"
 
   assertError
-    (Qasm.Program.toQasm [Qasm.Stmt.version 3 0, Qasm.Stmt.bit "bit" 1])
+    (QASM.Program.toQasm [QASM.Stmt.version 3 0, QASM.Stmt.bit "bit" 1])
     "invalid OpenQASM identifier: bit"
 
 private def testDeterministicExecution : IO Unit := do

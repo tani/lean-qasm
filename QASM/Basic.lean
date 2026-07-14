@@ -42,7 +42,7 @@ Qubit indexing is little endian:
 - `q[0]` is the least significant basis-index bit.
 
 ```lean
-namespace Qasm
+namespace QASM
 ```
 
 ## Abstract syntax tree
@@ -353,7 +353,7 @@ def Program.toQasm (program : Program) : Except String String := do
 
 The following syntax categories describe register references and statements.
 The `qasm` term syntax requires the unique version declaration first and then
-collects the remaining statements into a `Qasm.Program`.
+collects the remaining statements into a `QASM.Program`.
 
 ```lean
 
@@ -418,7 +418,7 @@ private def expandRef :
       let indexValue := index.getNat
       ensureIdentifierAt name nameString
 
-      `(Qasm.Ref.mk
+      `(QASM.Ref.mk
           $(quote nameString)
           (some $(quote indexValue)))
 
@@ -426,7 +426,7 @@ private def expandRef :
       let nameString := name.getId.toString
       ensureIdentifierAt name nameString
 
-      `(Qasm.Ref.mk
+      `(QASM.Ref.mk
           $(quote nameString)
           none)
 
@@ -442,7 +442,7 @@ private def expandStmt :
       let filenameString := filename.getString
       ensureIncludeFilenameAt filename filenameString
 
-      `(Qasm.Stmt.includeFile
+      `(QASM.Stmt.includeFile
           $(quote filenameString))
 
   | `(qasmStmt| qubit[$size:num] $name:ident;) => do
@@ -450,7 +450,7 @@ private def expandStmt :
       let sizeValue := size.getNat
       ensureIdentifierAt name nameString
 
-      `(Qasm.Stmt.qubit
+      `(QASM.Stmt.qubit
           $(quote nameString)
           $(quote sizeValue))
 
@@ -459,7 +459,7 @@ private def expandStmt :
       let sizeValue := size.getNat
       ensureIdentifierAt name nameString
 
-      `(Qasm.Stmt.bit
+      `(QASM.Stmt.bit
           $(quote nameString)
           $(quote sizeValue))
 
@@ -467,7 +467,7 @@ private def expandStmt :
       let srcTerm ← expandRef src
       let dstTerm ← expandRef dst
 
-      `(Qasm.Stmt.measure
+      `(QASM.Stmt.measure
           $srcTerm
           $dstTerm)
 
@@ -476,7 +476,7 @@ private def expandStmt :
       let argTerm ← expandRef arg
       ensureIdentifierAt gate gateName
 
-      `(Qasm.Stmt.gate1
+      `(QASM.Stmt.gate1
           $(quote gateName)
           $argTerm)
 
@@ -486,7 +486,7 @@ private def expandStmt :
       let arg₂Term ← expandRef arg₂
       ensureIdentifierAt gate gateName
 
-      `(Qasm.Stmt.gate2
+      `(QASM.Stmt.gate2
           $(quote gateName)
           $arg₁Term
           $arg₂Term)
@@ -501,7 +501,7 @@ macro_rules
       ensureVersionAt version
 
       let init : LeanTermSyntax ←
-        `(([] : Qasm.Program))
+        `(([] : QASM.Program))
 
       let statements ← stmts.foldrM
         (β := LeanTermSyntax)
@@ -510,7 +510,7 @@ macro_rules
           let stmtTerm ← expandStmt stmt.raw
           `($stmtTerm :: $rest)
 
-      `(Qasm.Stmt.version 3 0 :: $statements)
+      `(QASM.Stmt.version 3 0 :: $statements)
 ```
 
 ## Complex amplitudes
@@ -1257,13 +1257,13 @@ def Program.simulate
 ## Simulation convenience syntax
 
 The `simulate program` term is a readable shorthand for
-`Qasm.Program.simulate program`.
+`QASM.Program.simulate program`.
 
 ```lean
 macro "simulate " program:term : term =>
-  `(Qasm.Program.simulate $program)
+  `(QASM.Program.simulate $program)
 
-end Qasm
+end QASM
 ```
 
 <!--
