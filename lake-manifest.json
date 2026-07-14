@@ -1,0 +1,16 @@
+{"version": "1.2.0",
+ "packagesDir": ".lake/packages",
+ "packages":
+ [{"url": "https://github.com/tani/literate-lean.git",
+   "type": "git",
+   "subDir": null,
+   "scope": "",
+   "rev": "df3440a886c170b908b9bb233e1f0aacd9e4dec6",
+   "name": "LiterateLean",
+   "manifestFile": "lake-manifest.json",
+   "inputRev": "main",
+   "inherited": false,
+   "configFile": "lakefile.toml"}],
+ "name": "qasmv",
+ "lakeDir": ".lake",
+ "fixedToolchain": false}
