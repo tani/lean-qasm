@@ -59,7 +59,7 @@ amplitude array is ordered as `|00>`, `|01>`, `|10>`, and `|11>`.
 
 ```lean
 def runBell : IO (Except String QASM.ExecutionResult) :=
-  simulate bell
+  simulate bell with {}
 
 end QASM.Guide
 ```

@@ -108,6 +108,15 @@ private partial def evalExpression (environment : ValueEnvironment) :
       | _, _ => throw ⟨"constant indexing requires one array index"⟩
   | expression => throw ⟨s!"expression is not constant-evaluable: {expression.toQasm}"⟩
 
+```
+
+## Scope-sensitive checks
+
+Control-flow legality depends on context rather than token shape. The checker
+therefore walks every nested scope while carrying loop depth and whether a
+subroutine return is permitted.
+
+```lean
 private partial def controlFlowDiagnostics
     (loopDepth : Nat) (returnAllowed : Bool) (statements : Array Statement) :
     Array Diagnostic := Id.run do
@@ -133,6 +142,14 @@ private partial def controlFlowDiagnostics
         | none => pure ()
     | .whileStatement _ body | .forStatement _ _ _ body =>
         diagnostics := diagnostics ++ controlFlowDiagnostics (loopDepth + 1) returnAllowed body
+    | .switchStatement _ cases defaultBody =>
+        for entry in cases do
+          diagnostics := diagnostics ++
+            controlFlowDiagnostics loopDepth returnAllowed entry.2
+        match defaultBody with
+        | some body =>
+            diagnostics := diagnostics ++ controlFlowDiagnostics loopDepth returnAllowed body
+        | none => pure ()
     | .defStatement _ _ _ body =>
         diagnostics := diagnostics ++ controlFlowDiagnostics 0 true body
     | .gateDefinition _ _ _ body =>
@@ -140,6 +157,16 @@ private partial def controlFlowDiagnostics
     | _ => pure ()
   return diagnostics
 
+```
+
+## Backend capability boundary
+
+Valid OpenQASM may still require behavior that the core specification delegates
+to a backend. Capability collection records these requirements structurally
+instead of rejecting calibration, timing, extern, or physical-qubit syntax
+during parsing.
+
+```lean
 inductive Capability where
   | externalFunction
   | calibration
@@ -190,6 +217,12 @@ private partial def collectCapabilities (statements : Array Statement)
     | .scope body | .whileStatement _ body | .forStatement _ _ _ body |
         .gateDefinition _ _ _ body =>
         capabilities := collectCapabilities body capabilities
+    | .switchStatement _ cases defaultBody =>
+        for entry in cases do
+          capabilities := collectCapabilities entry.2 capabilities
+        match defaultBody with
+        | some body => capabilities := collectCapabilities body capabilities
+        | none => pure ()
     | .ifStatement _ thenBody elseBody =>
         capabilities := collectCapabilities thenBody capabilities
         match elseBody with
@@ -202,6 +235,14 @@ private partial def collectCapabilities (statements : Array Statement)
     | _ => pure ()
   return capabilities
 
+```
+
+## Checked programs
+
+A checked program retains the source AST, evaluated constants, and the complete
+set of backend capabilities discovered by the recursive walk.
+
+```lean
 structure CheckedProgram where
   program : Program
   constants : ValueEnvironment

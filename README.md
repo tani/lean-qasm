@@ -32,7 +32,7 @@ def bell : QASM.Program :=
     measure q -> c;
   end_qasm
 
-#eval simulate bell
+#eval simulate bell with { maxQubits := 8 }
 ```
 
 The core implementation uses LiterateLean for its own documentation. Downstream
@@ -51,6 +51,9 @@ OpenQASM source text can also be parsed independently of Lean syntax:
 match QASM.parse "OPENQASM 3.0; qubit q; h q;" with
 | .ok program => IO.println program.toQasm
 | .error error => IO.eprintln s!"{error}"
+
+-- File I/O and syntax failures remain distinguishable.
+#check QASM.parseFile
 ```
 
 The staged compatibility matrix is tracked in [CONFORMANCE.md](CONFORMANCE.md).

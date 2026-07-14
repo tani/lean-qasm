@@ -121,7 +121,7 @@ private def testPrettyPrinting : IO Unit := do
     "invalid OpenQASM identifier: bit"
 
 private def testDeterministicExecution : IO Unit := do
-  match ← simulate xProgram with
+  match ← simulate xProgram with {} with
   | .error message =>
       throw (IO.userError s!"x program failed: {message}")
   | .ok result =>
@@ -135,7 +135,7 @@ private def testDeterministicExecution : IO Unit := do
         "x program should produce the |1> state"
 
 private def testBellMeasurement : IO Unit := do
-  match ← simulate bell with
+  match ← simulate bell with {} with
   | .error message =>
       throw (IO.userError s!"Bell program failed: {message}")
   | .ok result =>
@@ -148,13 +148,21 @@ private def testBellMeasurement : IO Unit := do
           throw (IO.userError "Bell result should contain exactly one classical register")
 
 private def testRuntimeError : IO Unit := do
-  match ← simulate unsupportedGateProgram with
+  match ← simulate unsupportedGateProgram with {} with
   | .error message =>
       assertTrue
         (message == "unsupported one-qubit gate: y")
         s!"unexpected unsupported-gate error: {message}"
   | .ok _ =>
       throw (IO.userError "unsupported gate should fail during execution")
+
+  match ← simulate xProgram with { maxQubits := 0 } with
+  | .error message =>
+      assertTrue
+        (message == "simulation requires 1 qubits, exceeding maxQubits=0")
+        s!"unexpected max-qubit error: {message}"
+  | .ok _ =>
+      throw (IO.userError "maxQubits should be enforced before allocation")
 
 private def testFrontend20 : IO Unit := do
   let source :=
@@ -274,6 +282,52 @@ private def testFrontend80 : IO Unit := do
             (checked.requiredCapabilities.contains .physicalQubit)
             "physical-qubit capability should be reported"
 
+private def testFrontend100 : IO Unit := do
+  let source :=
+    "OPENQASM 3;\n" ++
+    "bit[4] c;\n" ++
+    "c[:1] = c[2:];\n" ++
+    "delay[5 ns];\n" ++
+    "switch (c[0]) {\n" ++
+    "  case 0, 1 { c[0] = measure $0; }\n" ++
+    "  default { end; }\n" ++
+    "}"
+  match QASM.parse source with
+  | .error error => throw (IO.userError s!"100% frontend parse failed: {error}")
+  | .ok program =>
+      match QASM.parse program.toQasm with
+      | .error error => throw (IO.userError s!"100% frontend round trip failed: {error}")
+      | .ok reparsed => assertTrue (reparsed == program) "100% frontend round trip mismatch"
+
+private def testOfficialExamples : IO Unit := do
+  let root : System.FilePath := "Tests/Fixtures/OpenQASM30/examples"
+  let paths ← root.walkDir
+  let mut failures : Array String := #[]
+  for path in paths do
+    if path.extension == some "qasm" then
+      match ← QASM.parseFile path with
+      | .ok _ => pure ()
+      | .error error => failures := failures.push s!"{path}: {error}"
+  unless failures.isEmpty do
+    throw (IO.userError
+      ("official OpenQASM 3.0 fixture failures:\n" ++
+        String.intercalate "\n" failures.toList))
+
+private def testOfficialInvalidFixtures : IO Unit := do
+  let root : System.FilePath :=
+    "Tests/Fixtures/OpenQASM30/source/grammar/tests/invalid"
+  let paths ← root.walkDir
+  let mut accepted : Array String := #[]
+  for path in paths do
+    if path.extension == some "qasm" then
+      match ← QASM.parseFile path with
+      | .error _ => pure ()
+      | .ok _ => accepted := accepted.push s!"{path}"
+  unless accepted.isEmpty do
+    throw (IO.userError
+      ("invalid OpenQASM 3.0 fixtures unexpectedly accepted:\n" ++
+        String.intercalate "\n" accepted.toList))
+
 def run : IO Unit := do
   testValidation
   testPrettyPrinting
@@ -284,6 +338,9 @@ def run : IO Unit := do
   testFrontend40
   testFrontend60
   testFrontend80
+  testFrontend100
+  testOfficialExamples
+  testOfficialInvalidFixtures
 
 end QASMTests
 

@@ -27,15 +27,15 @@ Whole-register operations are also supported:
 - `x q;`
 - `measure q -> c;`
 
-Programs can be executed directly:
+Programs can be executed directly with explicit resource limits:
 
-    #eval simulate bell
+    #eval simulate bell with {}
 
 or:
 
     #eval simulate begin_qasm
       ...
-    end_qasm
+    end_qasm with { maxQubits := 16 }
 
 Qubit indexing is little endian:
 
@@ -592,6 +592,10 @@ def Machine.empty : Machine where
   qregs := []
   cregs := []
 
+structure SimulationOptions where
+  maxQubits : Nat := 24
+  deriving Repr, Inhabited, BEq
+
 structure ExecutionResult where
   qubitCount : Nat
   amplitudes : Array CFloat
@@ -1138,6 +1142,7 @@ measurements require equally sized operands before locations are paired.
 ```lean
 
 private def executeStmt
+    (options : SimulationOptions)
     (machine : Machine)
     (stmt : Stmt) :
     IO (Except String Machine) := do
@@ -1149,7 +1154,11 @@ private def executeStmt
       pure (.ok machine)
 
   | .qubit name size =>
-      pure (.ok (declareQuantumRegister machine name size))
+      if machine.qubitCount + size > options.maxQubits then
+        pure (.error
+          s!"simulation requires {machine.qubitCount + size} qubits, exceeding maxQubits={options.maxQubits}")
+      else
+        pure (.ok (declareQuantumRegister machine name size))
 
   | .bit name size =>
       pure (.ok (declareClassicalRegister machine name size))
@@ -1202,6 +1211,7 @@ private def executeStmt
               (List.zip qubits classicalBits)
 
 private def executeStatements
+    (options : SimulationOptions)
     (machine : Machine) :
     List Stmt →
     IO (Except String Machine)
@@ -1209,12 +1219,12 @@ private def executeStatements
       pure (.ok machine)
 
   | stmt :: rest => do
-      match ← executeStmt machine stmt with
+      match ← executeStmt options machine stmt with
       | .error message =>
           pure (.error message)
 
       | .ok next =>
-          executeStatements next rest
+          executeStatements options next rest
 ```
 
 ## Program simulation
@@ -1235,14 +1245,15 @@ private def classicalSnapshot
     (fun entry => (entry.1, entry.2.bits))
 
 def Program.simulate
-    (program : Program) :
+    (program : Program)
+    (options : SimulationOptions) :
     IO (Except String ExecutionResult) := do
   match program.validate with
   | .error message =>
       pure (.error message)
 
   | .ok () =>
-      match ← executeStatements Machine.empty program with
+      match ← executeStatements options Machine.empty program with
       | .error message =>
           pure (.error message)
 
@@ -1256,12 +1267,12 @@ def Program.simulate
 
 ## Simulation convenience syntax
 
-The `simulate program` term is a readable shorthand for
-`QASM.Program.simulate program`.
+The `simulate program with options` term is a readable shorthand for
+`QASM.Program.simulate program options`.
 
 ```lean
-macro "simulate " program:term : term =>
-  `(QASM.Program.simulate $program)
+macro "simulate " program:term " with " options:term : term =>
+  `(QASM.Program.simulate $program $options)
 
 end QASM
 ```

@@ -179,14 +179,21 @@ def lex (source : String) : Except ParseError (Array Token) :=
 
 private def _parsecImplementationWitness : SourceParser (Array Token) := tokenStreamParser
 
+```
+
+## Source syntax tree
+
+The source AST follows the OpenQASM grammar rather than the smaller embedded
+DSL. Expressions and operands are mutually recursive because an indexed
+identifier may contain arbitrary expressions, while measurement is itself a
+declaration expression. Calibration bodies remain normalized opaque text:
+their grammar is selected by `defcalgrammar` and is intentionally not imposed
+by the OpenQASM host parser.
+
+```lean
 structure Version where
   major : Nat
   minor : Nat
-  deriving Repr, Inhabited, BEq
-
-inductive Operand where
-  | identifier (name : String) (index : Option Nat := none)
-  | hardware (index : Nat)
   deriving Repr, Inhabited, BEq
 
 inductive Literal where
@@ -198,6 +205,7 @@ inductive Literal where
   | timing (raw : String)
   deriving Repr, Inhabited, BEq
 
+mutual
 inductive Expression where
   | literal (value : Literal)
   | identifier (name : String)
@@ -210,7 +218,15 @@ inductive Expression where
   | range (start step stop : Option Expression)
   | set (values : Array Expression)
   | array (values : Array Expression)
+  | measure (operand : Operand)
+  | durationOf (body : String)
   deriving Repr, Inhabited, BEq
+
+inductive Operand where
+  | identifier (name : String) (indices : Array (Array Expression))
+  | hardware (index : Nat)
+  deriving Repr, Inhabited, BEq
+end
 
 inductive TypeSpec where
   | scalar (name : String) (width : Option Expression := none)
@@ -237,10 +253,10 @@ structure Annotation where
 
 inductive Statement where
   | includeFile (filename : String)
-  | qubit (name : String) (size : Nat := 1)
-  | bit (name : String) (size : Nat := 1)
-  | qreg (name : String) (size : Nat := 1)
-  | creg (name : String) (size : Nat := 1)
+  | qubit (name : String) (size : Option Expression)
+  | bit (name : String) (size : Option Expression)
+  | qreg (name : String) (size : Option Expression)
+  | creg (name : String) (size : Option Expression)
   | gateCall (modifiers : Array GateModifier) (name : String)
       (parameters : Array Expression) (designator : Option Expression)
       (operands : Array Operand)
@@ -259,6 +275,9 @@ inductive Statement where
   | ifStatement (condition : Expression) (thenBody : Array Statement)
       (elseBody : Option (Array Statement))
   | whileStatement (condition : Expression) (body : Array Statement)
+  | switchStatement (value : Expression)
+      (cases : Array (Array Expression × Array Statement))
+      (defaultBody : Option (Array Statement))
   | forStatement (type : TypeSpec) (iterator : String)
       (iterable : Expression) (body : Array Statement)
   | breakStatement
@@ -286,6 +305,17 @@ structure Program where
   statements : Array Statement
   deriving Repr, Inhabited, BEq
 
+```
+
+## Token grammar parser
+
+Parsing is a state transformer over the token array produced above. Expression
+parsing uses a Pratt-style precedence loop matching the ANTLR rule order.
+Statement bodies recurse through the same parser for both a single statement
+and a braced scope. Balanced calibration blocks are collected without trying to
+interpret the selected pulse language.
+
+```lean
 private structure ParseCursor where
   tokens : Array Token
   index : Nat := 0
@@ -354,29 +384,6 @@ private def parseNat : GrammarParser Nat := do
     | none => failAtCurrent "expected decimal integer"
   | _ => failAtCurrent "expected decimal integer"
 
-private def parseSize? : GrammarParser (Option Nat) := do
-  if ← accept "[" then
-    let size ← parseNat
-    expect "]"
-    pure (some size)
-  else pure none
-
-private def parseOperand : GrammarParser Operand := do
-  match ← current? with
-  | some ⟨.hardwareQubit index, _⟩ =>
-      let _ ← consume
-      pure (.hardware index)
-  | some ⟨.identifier _, _⟩ =>
-      let name ← parseIdentifier
-      pure (.identifier name (← parseSize?))
-  | _ => failAtCurrent "expected gate operand"
-
-private partial def parseOperandList (operands : Array Operand := #[]) :
-    GrammarParser (Array Operand) := do
-  let operands := operands.push (← parseOperand)
-  if ← accept "," then parseOperandList operands else pure operands
-
-
 private def scalarTypeNames : List String :=
   ["bit", "int", "uint", "float", "angle", "bool", "duration", "stretch", "complex"]
 
@@ -400,6 +407,16 @@ private def currentOperator? : GrammarParser (Option (String × Nat)) := do
   match ← current? with
   | some ⟨.symbol operator, _⟩ => pure ((binaryPrecedence operator).map (operator, ·))
   | _ => pure none
+
+private partial def collectBalancedText (depth : Nat := 1)
+    (parts : List String := []) : GrammarParser String := do
+  let token ← consume
+  match token.kind with
+  | .symbol "{" => collectBalancedText (depth + 1) ("{" :: parts)
+  | .symbol "}" =>
+      if depth == 1 then pure (String.intercalate " " parts.reverse)
+      else collectBalancedText (depth - 1) ("}" :: parts)
+  | kind => collectBalancedText depth (tokenText kind :: parts)
 
 private def classifyNumber (raw : String) : Literal :=
   if raw.endsWith "im" then .imaginary raw
@@ -435,12 +452,29 @@ mutual
     | _ => parsePostfix (← parsePrimary)
 
   private partial def parsePrimary : GrammarParser Expression := do
-    match (← consume).kind with
-    | .number raw => pure (.literal (classifyNumber raw))
+    let token ← consume
+    match token.kind with
+    | .number raw =>
+        let cursor ← get
+        match cursor.tokens[cursor.index]? with
+        | some ⟨.identifier suffix, span⟩ =>
+            let isSuffix := suffix == "im" ||
+              ["dt", "ns", "us", "µs", "ms", "s"].contains suffix
+            if isSuffix && span.start.line == token.span.stop.line then
+              set { cursor with index := cursor.index + 1 }
+              pure (.literal (classifyNumber (raw ++ suffix)))
+            else pure (.literal (classifyNumber raw))
+        | _ => pure (.literal (classifyNumber raw))
     | .stringLiteral value => pure (.literal (.bitstring value))
     | .hardwareQubit index => pure (.hardwareQubit index)
     | .identifier "true" => pure (.literal (.boolean true))
     | .identifier "false" => pure (.literal (.boolean false))
+    | .identifier "durationof" =>
+        expect "("
+        expect "{"
+        let body ← collectBalancedText
+        expect ")"
+        pure (.durationOf body)
     | .identifier name =>
         let saved ← get
         let width ←
@@ -467,9 +501,42 @@ mutual
 
   private partial def parsePostfix (value : Expression) : GrammarParser Expression := do
     if ← accept "[" then
-      let indices ← parseExpressionList "]"
+      let indices ← parseIndexList
       parsePostfix (.index value indices)
     else pure value
+
+  private partial def indexExpressionEnds : GrammarParser Bool := do
+    match ← current? with
+    | some ⟨.symbol symbol, _⟩ =>
+        pure (symbol == ":" || symbol == "," || symbol == "]")
+    | _ => pure false
+
+  private partial def parseRangeTail (start : Option Expression) :
+      GrammarParser Expression := do
+    let middle ← if ← indexExpressionEnds then pure none else some <$> parseExpression
+    if ← accept ":" then
+      let stop ← if ← indexExpressionEnds then
+        failAtCurrent "the third range expression may not be omitted"
+      else some <$> parseExpression
+      pure (.range start middle stop)
+    else pure (.range start none middle)
+
+  private partial def parseIndexEntity : GrammarParser Expression := do
+    if ← accept ":" then parseRangeTail none
+    else
+      let start ← parseExpression
+      if ← accept ":" then parseRangeTail (some start)
+      else pure start
+
+  private partial def parseIndexList (values : Array Expression := #[]) :
+      GrammarParser (Array Expression) := do
+    if ← accept "]" then pure values
+    else
+      let values := values.push (← parseIndexEntity)
+      if ← accept "," then parseIndexList values
+      else
+        expect "]"
+        pure values
 
   private partial def parseExpressionList (terminator : String)
       (values : Array Expression := #[]) : GrammarParser (Array Expression) := do
@@ -481,6 +548,39 @@ mutual
         expect terminator
         pure values
 end
+
+private def parseSize? : GrammarParser (Option Expression) := do
+  if ← accept "[" then
+    let size ← parseExpression
+    expect "]"
+    pure (some size)
+  else pure none
+
+private partial def parseOperandIndices
+    (indices : Array (Array Expression) := #[]) :
+    GrammarParser (Array (Array Expression)) := do
+  if ← accept "[" then parseOperandIndices (indices.push (← parseIndexList))
+  else pure indices
+
+private def parseOperand : GrammarParser Operand := do
+  match ← current? with
+  | some ⟨.hardwareQubit index, _⟩ =>
+      let _ ← consume
+      pure (.hardware index)
+  | some ⟨.identifier _, _⟩ =>
+      let name ← parseIdentifier
+      pure (.identifier name (← parseOperandIndices))
+  | _ => failAtCurrent "expected gate operand"
+
+private partial def parseOperandList (operands : Array Operand := #[]) :
+    GrammarParser (Array Operand) := do
+  let operands := operands.push (← parseOperand)
+  if ← accept "," then parseOperandList operands else pure operands
+
+
+private def parseDeclarationExpression : GrammarParser Expression := do
+  if ← accept "measure" then pure (.measure (← parseOperand))
+  else parseExpression
 
 private partial def parseType : GrammarParser TypeSpec := do
   let name ← parseIdentifier
@@ -529,6 +629,9 @@ private def parseVersion? : GrammarParser (Option Version) := do
       | _ => failAtCurrent "expected OpenQASM version"
     expect ";"
     match raw.splitOn "." with
+    | [major] => match major.toNat? with
+      | some 3 => pure (some ⟨3, 0⟩)
+      | _ => failAtCurrent s!"unsupported OpenQASM version {raw}"
     | [major, minor] => match major.toNat?, minor.toNat? with
       | some 3, some 0 => pure (some ⟨3, 0⟩)
       | _, _ => failAtCurrent s!"unsupported OpenQASM version {raw}"
@@ -538,11 +641,11 @@ private def parseVersion? : GrammarParser (Option Version) := do
 private def parseDeclaration (quantum legacy : Bool) : GrammarParser Statement := do
   if legacy then
     let name ← parseIdentifier
-    let size := (← parseSize?).getD 1
+    let size ← parseSize?
     expect ";"
     pure (if quantum then .qreg name size else .creg name size)
   else
-    let size := (← parseSize?).getD 1
+    let size ← parseSize?
     let name ← parseIdentifier
     expect ";"
     pure (if quantum then .qubit name size else .bit name size)
@@ -648,6 +751,14 @@ private partial def parseStatement : GrammarParser Statement := do
       let condition ← parseExpression
       expect ")"
       pure (.whileStatement condition (← parseBody))
+  | some ⟨.identifier "switch", _⟩ =>
+      let _ ← consume
+      expect "("
+      let value ← parseExpression
+      expect ")"
+      expect "{"
+      let (cases, defaultBody) ← parseSwitchItems
+      pure (.switchStatement value cases defaultBody)
   | some ⟨.identifier "for", _⟩ =>
       let _ ← consume
       let type ← parseType
@@ -671,7 +782,7 @@ private partial def parseStatement : GrammarParser Statement := do
       let _ ← consume
       if ← accept ";" then pure (.returnStatement none)
       else
-        let value ← parseExpression
+        let value ← parseDeclarationExpression
         expect ";"
         pure (.returnStatement (some value))
   | some ⟨.identifier "def", _⟩ =>
@@ -701,7 +812,7 @@ private partial def parseStatement : GrammarParser Statement := do
         parseGateCall (← parseGateModifiers)
       else if direction == "gphase" then parseGateCall #[]
       else parseNonAdvancedIdentifier direction
-  | _ => failAtCurrent "unsupported OpenQASM statement in the 80% frontend"
+  | _ => failAtCurrent "unsupported OpenQASM 3.0 statement"
 
 where
   parseDesignator? : GrammarParser (Option Expression) := do
@@ -807,10 +918,29 @@ where
     else if isScalarTypeName direction || direction == "array" then
       let type ← parseType
       let name ← parseIdentifier
-      let initializer ← if ← accept "=" then some <$> parseExpression else pure none
+      let initializer ← if ← accept "=" then some <$> parseDeclarationExpression else pure none
       expect ";"
       pure (.classicalDeclaration type name initializer)
     else parseIdentifierLedStatement
+
+  parseCaseValues (values : Array Expression := #[]) :
+      GrammarParser (Array Expression) := do
+    let values := values.push (← parseExpression)
+    if ← accept "," then parseCaseValues values else pure values
+
+  parseSwitchItems
+      (cases : Array (Array Expression × Array Statement) := #[])
+      (defaultBody : Option (Array Statement) := none) :
+      GrammarParser (Array (Array Expression × Array Statement) × Option (Array Statement)) := do
+    if ← accept "}" then pure (cases, defaultBody)
+    else if ← accept "case" then
+      let values ← parseCaseValues
+      let body ← parseRequiredScope
+      parseSwitchItems (cases.push (values, body)) defaultBody
+    else if ← accept "default" then
+      let body ← parseRequiredScope
+      parseSwitchItems cases (some body)
+    else failAtCurrent "expected 'case', 'default', or '}' in switch"
 
   parseBlockStatements (statements : Array Statement := #[]) :
       GrammarParser (Array Statement) := do
@@ -900,7 +1030,7 @@ where
     match ← currentAssignmentOperator? with
     | some operator =>
         let _ ← consume
-        let value ← parseExpression
+        let value ← parseDeclarationExpression
         expect ";"
         pure (.assignment candidate operator value)
     | none =>
@@ -929,21 +1059,46 @@ def parseTokens (tokens : Array Token) : Except ParseError Program := do
 
 def parse (source : String) : Except ParseError Program := lex source >>= parseTokens
 
-private def Operand.toQasm : Operand → String
-  | .identifier name none => name
-  | .identifier name (some index) => s!"{name}[{index}]"
-  | .hardware index => s!"${index}"
+```
 
-private def joinOperands (operands : Array Operand) : String :=
-  String.intercalate ", " (operands.toList.map Operand.toQasm)
+## Public file parsing
 
+`parse` is pure. `parseFile` adds I/O while preserving the distinction
+between filesystem failure and a positioned OpenQASM syntax error.
 
+```lean
+inductive FileParseError where
+  | io (message : String)
+  | syntax (error : ParseError)
+  deriving Repr, Inhabited, BEq
+
+instance : ToString FileParseError where
+  toString
+    | .io message => message
+    | .syntax error => toString error
+
+def parseFile (path : System.FilePath) : IO (Except FileParseError Program) := do
+  try
+    pure ((parse (← IO.FS.readFile path)).mapError .syntax)
+  catch error =>
+    pure (.error (.io s!"{path}: {error}"))
+
+```
+
+## Normalized source rendering
+
+Rendering is deliberately normalized rather than lossless. Every accepted AST
+prints to syntax that the same frontend can parse again; comments and original
+spacing are not retained.
+
+```lean
 private def Literal.toQasm : Literal → String
   | .integer raw | .float raw | .imaginary raw | .timing raw => raw
   | .boolean true => "true"
   | .boolean false => "false"
   | .bitstring value => s!"\"{value}\""
 
+mutual
 partial def Expression.toQasm : Expression → String
   | .literal value => value.toQasm
   | .identifier name => name
@@ -965,6 +1120,19 @@ partial def Expression.toQasm : Expression → String
       | some step => s!"{start}:{step.toQasm}:{stop}"
   | .set values => "{" ++ String.intercalate ", " (values.toList.map Expression.toQasm) ++ "}"
   | .array values => "{" ++ String.intercalate ", " (values.toList.map Expression.toQasm) ++ "}"
+  | .measure operand => s!"measure {operand.toQasm}"
+  | .durationOf body => "durationof({ " ++ body ++ " })"
+
+partial def Operand.toQasm : Operand → String
+  | .identifier name indices =>
+      let indices := indices.toList.map fun group =>
+        s!"[{String.intercalate ", " (group.toList.map Expression.toQasm)}]"
+      name ++ String.join indices
+  | .hardware index => s!"${index}"
+end
+
+private def joinOperands (operands : Array Operand) : String :=
+  String.intercalate ", " (operands.toList.map Operand.toQasm)
 
 partial def TypeSpec.toQasm : TypeSpec → String
   | .scalar name none => name
@@ -987,14 +1155,14 @@ private def GateModifier.toQasm : GateModifier → String
 
 partial def Statement.toQasm : Statement → String
   | .includeFile filename => s!"include \"{filename}\";"
-  | .qubit name 1 => s!"qubit {name};"
-  | .qubit name size => s!"qubit[{size}] {name};"
-  | .bit name 1 => s!"bit {name};"
-  | .bit name size => s!"bit[{size}] {name};"
-  | .qreg name 1 => s!"qreg {name};"
-  | .qreg name size => s!"qreg {name}[{size}];"
-  | .creg name 1 => s!"creg {name};"
-  | .creg name size => s!"creg {name}[{size}];"
+  | .qubit name none => s!"qubit {name};"
+  | .qubit name (some size) => s!"qubit[{size.toQasm}] {name};"
+  | .bit name none => s!"bit {name};"
+  | .bit name (some size) => s!"bit[{size.toQasm}] {name};"
+  | .qreg name none => s!"qreg {name};"
+  | .qreg name (some size) => s!"qreg {name}[{size.toQasm}];"
+  | .creg name none => s!"creg {name};"
+  | .creg name (some size) => s!"creg {name}[{size.toQasm}];"
   | .gateCall modifiers name parameters designator operands =>
       let modifiers := String.join (modifiers.toList.map GateModifier.toQasm)
       let parameters := if parameters.isEmpty then ""
@@ -1022,6 +1190,16 @@ partial def Statement.toQasm : Statement → String
   | .ifStatement condition thenBody (some elseBody) =>
       s!"if ({condition.toQasm}) {block thenBody} else {block elseBody}"
   | .whileStatement condition body => s!"while ({condition.toQasm}) {block body}"
+  | .switchStatement value cases defaultBody =>
+      let cases := cases.toList.map fun entry =>
+        let values := String.intercalate ", " (entry.1.toList.map Expression.toQasm)
+        s!"case {values} {block entry.2}"
+      let items := match defaultBody with
+        | none => cases
+        | some body => cases ++ [s!"default {block body}"]
+      let body := String.intercalate "\n" (items.map indent)
+      if items.isEmpty then "switch (" ++ value.toQasm ++ ") {}"
+      else "switch (" ++ value.toQasm ++ ") {\n" ++ body ++ "\n}"
   | .forStatement type iterator iterable body =>
       let iterable := match iterable with
         | .range _ _ _ => s!"[{iterable.toQasm}]"
@@ -1082,9 +1260,13 @@ def Program.toQasm (program : Program) : String :=
 end Frontend
 
 abbrev ParseError := Frontend.ParseError
+abbrev FileParseError := Frontend.FileParseError
 abbrev SourceProgram := Frontend.Program
 
 def parse (source : String) : Except ParseError SourceProgram :=
   Frontend.parse source
+
+def parseFile (path : System.FilePath) : IO (Except FileParseError SourceProgram) :=
+  Frontend.parseFile path
 end QASM
 ```
