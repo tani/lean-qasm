@@ -1,6 +1,8 @@
 import Lean
 import LiterateLean
 
+open scoped LiterateLean
+
 # QASM basic embedded language and interpreter
 
 This module implements a small executable subset of OpenQASM 3.0. It combines

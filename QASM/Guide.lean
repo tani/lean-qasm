@@ -1,6 +1,8 @@
 import LiterateLean
 import QASM.Basic
 
+open scoped LiterateLean
+
 # QASM literate guide
 
 This module is both documentation and checked Lean source. LiterateLean treats
