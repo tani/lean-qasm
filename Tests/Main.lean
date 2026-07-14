@@ -121,7 +121,7 @@ private def testPrettyPrinting : IO Unit := do
     "invalid OpenQASM identifier: bit"
 
 private def testDeterministicExecution : IO Unit := do
-  match ← execute xProgram with
+  match ← simulate xProgram with
   | .error message =>
       throw (IO.userError s!"x program failed: {message}")
   | .ok result =>
@@ -135,7 +135,7 @@ private def testDeterministicExecution : IO Unit := do
         "x program should produce the |1> state"
 
 private def testBellMeasurement : IO Unit := do
-  match ← execute bell with
+  match ← simulate bell with
   | .error message =>
       throw (IO.userError s!"Bell program failed: {message}")
   | .ok result =>
@@ -148,7 +148,7 @@ private def testBellMeasurement : IO Unit := do
           throw (IO.userError "Bell result should contain exactly one classical register")
 
 private def testRuntimeError : IO Unit := do
-  match ← execute unsupportedGateProgram with
+  match ← simulate unsupportedGateProgram with
   | .error message =>
       assertTrue
         (message == "unsupported one-qubit gate: y")

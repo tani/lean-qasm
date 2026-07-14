@@ -1,7 +1,7 @@
-import LiterateLean
-import QASM.Basic
+    import LiterateLean
+    import QASM.Basic
 
-open scoped LiterateLean
+    open scoped LiterateLean
 
 # QASM literate guide
 
@@ -48,9 +48,9 @@ Serialization returns `Except String String` and only emits validated programs.
 #eval bell.toQasm
 ```
 
-## Execution
+## Simulation
 
-Execution validates first and then interprets the supported `id`, `x`, `h`,
+Simulation validates first and then interprets the supported `id`, `x`, `h`,
 `z`, and `cx` gates. Measurement is an `IO` operation because it samples an
 outcome and collapses the state vector.
 
@@ -59,7 +59,7 @@ amplitude array is ordered as `|00>`, `|01>`, `|10>`, and `|11>`.
 
 ```lean
 def runBell : IO (Except String Qasm.ExecutionResult) :=
-  execute bell
+  simulate bell
 
 end Qasm.Guide
 ```

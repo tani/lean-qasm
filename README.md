@@ -32,7 +32,7 @@ def bell : Qasm.Program :=
     measure q -> c;
   }
 
-#eval execute bell
+#eval simulate bell
 ```
 
 The core implementation uses LiterateLean for its own documentation. Downstream

@@ -1,7 +1,7 @@
-import Lean
-import LiterateLean
+    import Lean
+    import LiterateLean
 
-open scoped LiterateLean
+    open scoped LiterateLean
 
 # QASM basic embedded language and interpreter
 
@@ -29,11 +29,11 @@ Whole-register operations are also supported:
 
 Programs can be executed directly:
 
-    #eval execute bell
+    #eval simulate bell
 
 or:
 
-    #eval execute qasm {
+    #eval simulate qasm {
       ...
     }
 
@@ -1217,12 +1217,12 @@ private def executeStatements
           executeStatements next rest
 ```
 
-## Program execution
+## Program simulation
 
-Public execution validates first, initializes an empty machine, and exposes a
+Public simulation validates first, initializes an empty machine, and exposes a
 snapshot containing the final state vector and classical registers.
 
-`Program.execute` starts from the all zero state. Measurement uses `IO`
+`Program.simulate` starts from the all zero state. Measurement uses `IO`
 randomness and collapses the state vector. Static and runtime failures are
 returned as `Except.error` values rather than raised as exceptions.
 
@@ -1234,7 +1234,7 @@ private def classicalSnapshot
   machine.cregs.reverse.map
     (fun entry => (entry.1, entry.2.bits))
 
-def Program.execute
+def Program.simulate
     (program : Program) :
     IO (Except String ExecutionResult) := do
   match program.validate with
@@ -1254,14 +1254,14 @@ def Program.execute
           })
 ```
 
-## Execution convenience syntax
+## Simulation convenience syntax
 
-The `execute program` term is a readable shorthand for
-`Qasm.Program.execute program`.
+The `simulate program` term is a readable shorthand for
+`Qasm.Program.simulate program`.
 
 ```lean
-macro "execute " program:term : term =>
-  `(Qasm.Program.execute $program)
+macro "simulate " program:term : term =>
+  `(Qasm.Program.simulate $program)
 
 end Qasm
 ```
