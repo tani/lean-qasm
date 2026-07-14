@@ -1,0 +1,20 @@
+# OpenQASM 3.0 conformance
+
+LeanQASM targets the official `spec/v3.0.0` grammar from the OpenQASM
+repository. Progress is measured in five equally weighted feature bundles;
+a bundle contributes 20 percentage points only when all of its acceptance
+tests pass.
+
+| Bundle | Status | Contents |
+| --- | --- | --- |
+| Quantum core frontend | Complete (20%) | Lexer, version/include, register declarations, gate calls, measure, reset, barrier, normalized printing |
+| Expressions and types | Planned | Full expressions, scalar/array types, declarations and assignments |
+| Structured execution | Planned | Scopes, control flow, subroutines and extern declarations |
+| Advanced quantum/timing | Planned | Gate definitions/modifiers, timing, calibration syntax, pragmas and annotations |
+| Semantic closure | Planned | Complete static semantics, backend-independent execution and full official fixture audit |
+
+The grammar, examples, and license under `Tests/Fixtures/OpenQASM30` are copied
+from the official `spec/v3.0.0` tag. Backend-dependent extern, calibration,
+physical-qubit, and timing operations will be represented and checked, but the
+fixed state-vector simulator will report a structured unsupported-capability
+error when their behavior cannot be determined by the core specification.

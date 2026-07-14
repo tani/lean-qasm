@@ -156,12 +156,39 @@ private def testRuntimeError : IO Unit := do
   | .ok _ =>
       throw (IO.userError "unsupported gate should fail during execution")
 
+private def testFrontend20 : IO Unit := do
+  let source :=
+    "OPENQASM 3.0;\n" ++
+    "include \"stdgates.inc\";\n" ++
+    "qubit[2] 量子; // Unicode identifier\n" ++
+    "bit[2] c;\n" ++
+    "h 量子[0];\n" ++
+    "cx 量子[0], 量子[1];\n" ++
+    "barrier 量子;\n" ++
+    "measure 量子 -> c;"
+  match QASM.parse source with
+  | .error error =>
+      throw (IO.userError s!"20% frontend parse failed: {error}")
+  | .ok program =>
+      assertTrue (program.version == some ⟨3, 0⟩) "frontend should retain version 3.0"
+      assertTrue (program.statements.size == 7) "frontend statement count mismatch"
+      match QASM.parse program.toQasm with
+      | .error error =>
+          throw (IO.userError s!"frontend round trip failed: {error}")
+      | .ok reparsed =>
+          assertTrue (reparsed == program) "frontend normalized round trip mismatch"
+
+  match QASM.parse "qubit q; reset $0;" with
+  | .error error => throw (IO.userError s!"version-optional parse failed: {error}")
+  | .ok program => assertTrue program.version.isNone "version should be optional"
+
 def run : IO Unit := do
   testValidation
   testPrettyPrinting
   testDeterministicExecution
   testBellMeasurement
   testRuntimeError
+  testFrontend20
 
 end QASMTests
 

@@ -45,6 +45,16 @@ names to non-keyword ASCII identifiers, and validates include filenames.
 `Program.toQasm` returns `Except String String` so invalid AST values are never
 serialized as OpenQASM.
 
+OpenQASM source text can also be parsed independently of Lean syntax:
+
+```lean
+match QASM.parse "OPENQASM 3.0; qubit q; h q;" with
+| .ok program => IO.println program.toQasm
+| .error error => IO.eprintln s!"{error}"
+```
+
+The staged compatibility matrix is tracked in [CONFORMANCE.md](CONFORMANCE.md).
+
 ## Documentation
 
 The source includes API documentation on public declarations and a literate,

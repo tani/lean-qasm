@@ -1,0 +1,13 @@
+# indent w/ 2 spaces
+source: |
+  !my_var;
+reference: |
+  program
+    statement
+      expressionStatement
+        expression
+          !
+          expression
+            my_var
+        ;
+    <EOF>

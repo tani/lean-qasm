@@ -1,0 +1,35 @@
+# indent w/ 2 spaces
+source: |
+  2+2;
+  2**2;
+  x << y;
+reference: |
+  program
+    statement
+      expressionStatement
+        expression
+          expression
+            2
+          +
+          expression
+            2
+        ;
+    statement
+      expressionStatement
+        expression
+          expression
+            2
+          **
+          expression
+            2
+        ;
+    statement
+      expressionStatement
+        expression
+          expression
+            x
+          <<
+          expression
+            y
+        ;
+    <EOF>

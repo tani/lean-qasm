@@ -1,0 +1,50 @@
+# indent w/ 2 spaces
+source: |
+  OPENQASM 3.0;
+  include "std_gates.inc";
+  input angle[32] param1;
+  input angle[32] param2;
+  output bit result;
+reference: |
+  program
+    version
+      OPENQASM
+      3.0
+      ;
+    statement
+      includeStatement
+        include
+        "std_gates.inc"
+        ;
+    statement
+      ioDeclarationStatement
+        input
+        scalarType
+          angle
+          designator
+            [
+            expression
+              32
+            ]
+        param1
+        ;
+    statement
+      ioDeclarationStatement
+        input
+        scalarType
+          angle
+          designator
+            [
+            expression
+              32
+            ]
+        param2
+        ;
+    statement
+      ioDeclarationStatement
+        output
+        scalarType
+          bit
+        result
+        ;
+    <EOF>
