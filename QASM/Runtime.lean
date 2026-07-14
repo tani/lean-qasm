@@ -4,8 +4,8 @@
 
 # Portable OpenQASM runtime model and value carrier
 
-実行時の値キャリア、バックエンド境界、ゲート記録、定数変換、配列変換の
-基盤をまとめたモジュールです。`elab` が生成するコードから使用されます。
+This module defines the runtime value carrier, backend boundary abstractions,
+gate logs, constant conversion, and array conversion foundations used by generated code from `elab`.
 
 ```lean
 import Lean

@@ -8,8 +8,8 @@
 
 # OpenQASM type analysis and checking
 
-OpenQASM の型情報を収集し、定数評価、宣言検証、サブルーチン/ゲートの
-シグネチャ検証を行うモジュールです。
+This module collects OpenQASM type information and performs constant evaluation,
+declaration validation, and signature checking for subroutines and gates.
 
 ```lean
 import QASM.Runtime

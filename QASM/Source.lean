@@ -4,8 +4,8 @@
 
 # OpenQASM raw block parser for `begin_qasm`
 
-`begin_qasm` / `end_qasm` の行ベース抽出を行い、生文字列を `qasmRaw` として
-取得する低レベルパーサです。
+`begin_qasm` / `end_qasm` performs line-based extraction and constructs the raw
+OpenQASM source string as `qasmRaw`, implemented as a low-level parser.
 
 ```lean
 import Lean

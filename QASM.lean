@@ -4,8 +4,8 @@
 
 # QASM module bootstrap
 
-`QASM.lean` はライブラリの入口です。`QASM.Runtime` から `QASM.Elab` までの
-主要コンポーネントを再エクスポートします。
+`QASM.lean` is the library entry point that re-exports the core components
+from `QASM.Runtime` through `QASM.Elab`.
 
 ```lean
 import QASM.Runtime

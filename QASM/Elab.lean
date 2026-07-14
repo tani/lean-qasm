@@ -11,8 +11,8 @@
 
 # OpenQASM elaboration pipeline
 
-`elab_qasm` の本体。パース、include 展開、型検査、ネイティブ Lean 関数
-の生成までを 1 つのコマンドで実行します。
+The core of `elab_qasm`; it runs parsing, include expansion, type checking,
+and native Lean function generation in a single command.
 
 ```lean
 import QASM.Runtime
