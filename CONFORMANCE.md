@@ -9,8 +9,8 @@ tests pass.
 | --- | --- | --- |
 | Quantum core frontend | Complete (20%) | Lexer, version/include, register declarations, gate calls, measure, reset, barrier, normalized printing |
 | Expressions and types | Complete (40%) | Full precedence expression AST, scalar/array types, declarations, assignments, normalized printing and constant checking |
-| Structured execution | Planned | Scopes, control flow, subroutines and extern declarations |
-| Advanced quantum/timing | Planned | Gate definitions/modifiers, timing, calibration syntax, pragmas and annotations |
+| Structured language | Complete (60%) | Scopes, control flow, subroutines, extern and gate declarations, scope checking and normalized printing |
+| Advanced quantum/timing | Planned | Gate modifiers, timing, calibration syntax, pragmas and annotations |
 | Semantic closure | Planned | Complete static semantics, backend-independent execution and full official fixture audit |
 
 The grammar, examples, and license under `Tests/Fixtures/OpenQASM30` are copied

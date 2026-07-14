@@ -219,6 +219,11 @@ inductive TypeSpec where
       (dimensions : Array Expression) (dimensionCount : Option Expression)
   deriving Repr, Inhabited, BEq
 
+structure ArgumentDefinition where
+  type : TypeSpec
+  name : String
+  deriving Repr, Inhabited, BEq
+
 inductive Statement where
   | includeFile (filename : String)
   | qubit (name : String) (size : Nat := 1)
@@ -237,6 +242,22 @@ inductive Statement where
   | aliasDeclaration (name : String) (value : Expression)
   | assignment (target : Expression) (operator : String) (value : Expression)
   | expression (value : Expression)
+  | scope (statements : Array Statement)
+  | ifStatement (condition : Expression) (thenBody : Array Statement)
+      (elseBody : Option (Array Statement))
+  | whileStatement (condition : Expression) (body : Array Statement)
+  | forStatement (type : TypeSpec) (iterator : String)
+      (iterable : Expression) (body : Array Statement)
+  | breakStatement
+  | continueStatement
+  | endStatement
+  | returnStatement (value : Option Expression)
+  | defStatement (name : String) (arguments : Array ArgumentDefinition)
+      (returnType : Option TypeSpec) (body : Array Statement)
+  | externStatement (name : String) (arguments : Array TypeSpec)
+      (returnType : Option TypeSpec)
+  | gateDefinition (name : String) (parameters qubits : Array String)
+      (body : Array Statement)
   deriving Repr, Inhabited, BEq
 
 structure Program where
@@ -505,8 +526,11 @@ private def parseDeclaration (quantum legacy : Bool) : GrammarParser Statement :
     expect ";"
     pure (if quantum then .qubit name size else .bit name size)
 
-private def parseStatement : GrammarParser Statement := do
+private partial def parseStatement : GrammarParser Statement := do
   match ← current? with
+  | some ⟨.symbol "{", _⟩ =>
+      let _ ← consume
+      pure (.scope (← parseBlockStatements))
   | some ⟨.identifier "include", _⟩ =>
       let _ ← consume
       let filename ← match (← consume).kind with
@@ -543,6 +567,67 @@ private def parseStatement : GrammarParser Statement := do
         let operands ← parseOperandList
         expect ";"
         pure (.barrier operands)
+  | some ⟨.identifier "if", _⟩ =>
+      let _ ← consume
+      expect "("
+      let condition ← parseExpression
+      expect ")"
+      let thenBody ← parseBody
+      let elseBody ← if ← accept "else" then some <$> parseBody else pure none
+      pure (.ifStatement condition thenBody elseBody)
+  | some ⟨.identifier "while", _⟩ =>
+      let _ ← consume
+      expect "("
+      let condition ← parseExpression
+      expect ")"
+      pure (.whileStatement condition (← parseBody))
+  | some ⟨.identifier "for", _⟩ =>
+      let _ ← consume
+      let type ← parseType
+      let iterator ← parseIdentifier
+      expect "in"
+      let iterable ← parseForIterable
+      pure (.forStatement type iterator iterable (← parseBody))
+  | some ⟨.identifier "break", _⟩ =>
+      let _ ← consume
+      expect ";"
+      pure .breakStatement
+  | some ⟨.identifier "continue", _⟩ =>
+      let _ ← consume
+      expect ";"
+      pure .continueStatement
+  | some ⟨.identifier "end", _⟩ =>
+      let _ ← consume
+      expect ";"
+      pure .endStatement
+  | some ⟨.identifier "return", _⟩ =>
+      let _ ← consume
+      if ← accept ";" then pure (.returnStatement none)
+      else
+        let value ← parseExpression
+        expect ";"
+        pure (.returnStatement (some value))
+  | some ⟨.identifier "def", _⟩ =>
+      let _ ← consume
+      let name ← parseIdentifier
+      expect "("
+      let arguments ← parseArgumentList
+      let returnType ← parseReturnType?
+      pure (.defStatement name arguments returnType (← parseRequiredScope))
+  | some ⟨.identifier "extern", _⟩ =>
+      let _ ← consume
+      let name ← parseIdentifier
+      expect "("
+      let arguments ← parseTypeList
+      let returnType ← parseReturnType?
+      expect ";"
+      pure (.externStatement name arguments returnType)
+  | some ⟨.identifier "gate", _⟩ =>
+      let _ ← consume
+      let name ← parseIdentifier
+      let parameters ← if ← accept "(" then parseNameList ")" else pure #[]
+      let qubits ← parseNameList "{"
+      pure (.gateDefinition name parameters qubits (← parseBlockStatements))
   | some ⟨.identifier direction, _⟩ =>
       if direction == "input" || direction == "output" then
         let _ ← consume
@@ -564,9 +649,91 @@ private def parseStatement : GrammarParser Statement := do
         expect ";"
         pure (.classicalDeclaration type name initializer)
       else parseIdentifierLedStatement
-  | _ => failAtCurrent "unsupported OpenQASM statement in the 40% frontend"
+  | _ => failAtCurrent "unsupported OpenQASM statement in the 60% frontend"
 
 where
+  parseBlockStatements (statements : Array Statement := #[]) :
+      GrammarParser (Array Statement) := do
+    if ← accept "}" then pure statements
+    else parseBlockStatements (statements.push (← parseStatement))
+
+  parseBody : GrammarParser (Array Statement) := do
+    if ← accept "{" then parseBlockStatements
+    else pure #[← parseStatement]
+
+  parseRequiredScope : GrammarParser (Array Statement) := do
+    expect "{"
+    parseBlockStatements
+
+  parseArgumentType : GrammarParser TypeSpec := do
+    match ← current? with
+    | some ⟨.identifier name, _⟩ =>
+        if name == "qubit" || name == "qreg" || name == "creg" then
+          let _ ← consume
+          let width ← if ← accept "[" then
+            let width ← parseExpression
+            expect "]"
+            pure (some width)
+          else pure none
+          pure (.scalar name width)
+        else parseType
+    | _ => failAtCurrent "expected argument type"
+
+  parseArgumentList (arguments : Array ArgumentDefinition := #[]) :
+      GrammarParser (Array ArgumentDefinition) := do
+    if ← accept ")" then pure arguments
+    else
+      let type ← parseArgumentType
+      let name ← parseIdentifier
+      let arguments := arguments.push ⟨type, name⟩
+      if ← accept "," then parseArgumentList arguments
+      else
+        expect ")"
+        pure arguments
+
+  parseTypeList (types : Array TypeSpec := #[]) : GrammarParser (Array TypeSpec) := do
+    if ← accept ")" then pure types
+    else
+      let types := types.push (← parseArgumentType)
+      if ← accept "," then parseTypeList types
+      else
+        expect ")"
+        pure types
+
+  parseReturnType? : GrammarParser (Option TypeSpec) := do
+    if ← accept "->" then some <$> parseType else pure none
+
+  parseNameList (terminator : String) (names : Array String := #[]) :
+      GrammarParser (Array String) := do
+    if ← accept terminator then pure names
+    else
+      let names := names.push (← parseIdentifier)
+      if ← accept "," then parseNameList terminator names
+      else
+        expect terminator
+        pure names
+
+  parseForIterable : GrammarParser Expression := do
+    if ← accept "[" then
+      let start ← if ← accept ":" then pure none else
+        let start ← parseExpression
+        expect ":"
+        pure (some start)
+      let middle ← if ← accept "]" then pure none else some <$> parseExpression
+      match middle with
+      | none => pure (.range start none none)
+      | some middle =>
+          if ← accept ":" then
+            let stop ← if ← accept "]" then pure none else
+              let stop ← parseExpression
+              expect "]"
+              pure (some stop)
+            pure (.range start (some middle) stop)
+          else
+            expect "]"
+            pure (.range start none (some middle))
+    else parseExpression
+
   parseIdentifierLedStatement : GrammarParser Statement := do
     let saved ← get
     let candidate ← parseExpression
@@ -650,7 +817,7 @@ partial def TypeSpec.toQasm : TypeSpec → String
   | .arrayRef mutable element _ (some count) =>
       let qualifier := if mutable then "mutable" else "readonly"
       s!"{qualifier} array[{element.toQasm}, #dim={count.toQasm}]"
-def Statement.toQasm : Statement → String
+partial def Statement.toQasm : Statement → String
   | .includeFile filename => s!"include \"{filename}\";"
   | .qubit name 1 => s!"qubit {name};"
   | .qubit name size => s!"qubit[{size}] {name};"
@@ -678,6 +845,44 @@ def Statement.toQasm : Statement → String
   | .aliasDeclaration name value => s!"let {name} = {value.toQasm};"
   | .assignment target operator value => s!"{target.toQasm} {operator} {value.toQasm};"
   | .expression value => s!"{value.toQasm};"
+  | .scope statements => block statements
+  | .ifStatement condition thenBody none =>
+      s!"if ({condition.toQasm}) {block thenBody}"
+  | .ifStatement condition thenBody (some elseBody) =>
+      s!"if ({condition.toQasm}) {block thenBody} else {block elseBody}"
+  | .whileStatement condition body => s!"while ({condition.toQasm}) {block body}"
+  | .forStatement type iterator iterable body =>
+      let iterable := match iterable with
+        | .range _ _ _ => s!"[{iterable.toQasm}]"
+        | _ => iterable.toQasm
+      s!"for {type.toQasm} {iterator} in {iterable} {block body}"
+  | .breakStatement => "break;"
+  | .continueStatement => "continue;"
+  | .endStatement => "end;"
+  | .returnStatement none => "return;"
+  | .returnStatement (some value) => s!"return {value.toQasm};"
+  | .defStatement name arguments returnType body =>
+      let arguments := arguments.toList.map fun argument =>
+        s!"{argument.type.toQasm} {argument.name}"
+      let returnType := returnType.map (fun type => s!" -> {type.toQasm}") |>.getD ""
+      s!"def {name}({String.intercalate ", " arguments}){returnType} {block body}"
+  | .externStatement name arguments returnType =>
+      let arguments := arguments.toList.map TypeSpec.toQasm
+      let returnType := returnType.map (fun type => s!" -> {type.toQasm}") |>.getD ""
+      s!"extern {name}({String.intercalate ", " arguments}){returnType};"
+  | .gateDefinition name parameters qubits body =>
+      let parameters := if parameters.isEmpty then ""
+        else s!"({String.intercalate ", " parameters.toList})"
+      s!"gate {name}{parameters} {String.intercalate ", " qubits.toList} {block body}"
+where
+  indent (source : String) : String :=
+    String.intercalate "\n" (source.splitOn "\n" |>.map fun line => "  " ++ line)
+
+  block (statements : Array Statement) : String :=
+    if statements.isEmpty then "{}"
+    else
+      let body := statements.toList.map (fun statement => indent statement.toQasm)
+      "{\n" ++ String.intercalate "\n" body ++ "\n}"
 
 def Program.toQasm (program : Program) : String :=
   let version := program.version.map (fun v => s!"OPENQASM {v.major}.{v.minor};")

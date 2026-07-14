@@ -108,6 +108,38 @@ private partial def evalExpression (environment : ValueEnvironment) :
       | _, _ => throw ⟨"constant indexing requires one array index"⟩
   | expression => throw ⟨s!"expression is not constant-evaluable: {expression.toQasm}"⟩
 
+private partial def controlFlowDiagnostics
+    (loopDepth : Nat) (returnAllowed : Bool) (statements : Array Statement) :
+    Array Diagnostic := Id.run do
+  let mut diagnostics := #[]
+  for statement in statements do
+    match statement with
+    | .breakStatement =>
+        if loopDepth == 0 then
+          diagnostics := diagnostics.push ⟨"'break' is only valid inside a loop"⟩
+    | .continueStatement =>
+        if loopDepth == 0 then
+          diagnostics := diagnostics.push ⟨"'continue' is only valid inside a loop"⟩
+    | .returnStatement _ =>
+        unless returnAllowed do
+          diagnostics := diagnostics.push ⟨"'return' is only valid inside a subroutine"⟩
+    | .scope body =>
+        diagnostics := diagnostics ++ controlFlowDiagnostics loopDepth returnAllowed body
+    | .ifStatement _ thenBody elseBody =>
+        diagnostics := diagnostics ++ controlFlowDiagnostics loopDepth returnAllowed thenBody
+        match elseBody with
+        | some body =>
+            diagnostics := diagnostics ++ controlFlowDiagnostics loopDepth returnAllowed body
+        | none => pure ()
+    | .whileStatement _ body | .forStatement _ _ _ body =>
+        diagnostics := diagnostics ++ controlFlowDiagnostics (loopDepth + 1) returnAllowed body
+    | .defStatement _ _ _ body =>
+        diagnostics := diagnostics ++ controlFlowDiagnostics 0 true body
+    | .gateDefinition _ _ _ body =>
+        diagnostics := diagnostics ++ controlFlowDiagnostics 0 false body
+    | _ => pure ()
+  return diagnostics
+
 structure CheckedProgram where
   program : Program
   constants : ValueEnvironment
@@ -126,6 +158,7 @@ def check (program : Program) : Except (Array Diagnostic) CheckedProgram := do
           | .ok value => environment := (name, value) :: environment
           | .error diagnostic => diagnostics := diagnostics.push diagnostic
     | _ => pure ()
+  diagnostics := diagnostics ++ controlFlowDiagnostics 0 false program.statements
   if diagnostics.isEmpty then pure ⟨program, environment⟩ else throw diagnostics
 
 end Frontend

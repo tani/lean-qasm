@@ -205,6 +205,42 @@ private def testFrontend40 : IO Unit := do
       | .ok checked =>
           assertTrue (checked.constants.length == 1) "constant environment mismatch"
 
+private def testFrontend60 : IO Unit := do
+  let source :=
+    "OPENQASM 3.0;\n" ++
+    "def parity(int[32] n) -> bit {\n" ++
+    "  bit result = false;\n" ++
+    "  for uint i in [0:n - 1] {\n" ++
+    "    if (i == 2) { continue; }\n" ++
+    "    while (result == false) { break; }\n" ++
+    "  }\n" ++
+    "  return result;\n" ++
+    "}\n" ++
+    "extern vote(bit[3]) -> bit;\n" ++
+    "gate pair(theta) a, b { h a; cx a, b; }"
+  match QASM.parse source with
+  | .error error => throw (IO.userError s!"60% frontend parse failed: {error}")
+  | .ok program =>
+      assertTrue (program.statements.size == 3) "60% frontend statement count mismatch"
+      match QASM.parse program.toQasm with
+      | .error error => throw (IO.userError s!"60% frontend round trip failed: {error}")
+      | .ok reparsed => assertTrue (reparsed == program) "60% frontend round trip mismatch"
+      match QASM.check program with
+      | .error diagnostics =>
+          throw (IO.userError s!"60% semantic check failed: {repr diagnostics}")
+      | .ok _ => pure ()
+
+  match QASM.parse "break;" with
+  | .error error => throw (IO.userError s!"break syntax should parse: {error}")
+  | .ok program =>
+      match QASM.check program with
+      | .ok _ => throw (IO.userError "top-level break should fail static semantics")
+      | .error diagnostics =>
+          assertTrue
+            (diagnostics.any fun diagnostic =>
+              diagnostic.message == "'break' is only valid inside a loop")
+            "top-level break diagnostic mismatch"
+
 def run : IO Unit := do
   testValidation
   testPrettyPrinting
@@ -213,6 +249,7 @@ def run : IO Unit := do
   testRuntimeError
   testFrontend20
   testFrontend40
+  testFrontend60
 
 end QASMTests
 
