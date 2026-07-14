@@ -57,3 +57,8 @@ import QASM.Guide
 #check Qasm.Guide.bell
 #check Qasm.Guide.runBell
 ```
+
+## Acknowledgements
+
+This project is developed under the umbrella of the AutoRes Lean-Quantum
+Project.
