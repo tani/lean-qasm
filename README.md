@@ -22,7 +22,7 @@ import QASM
 open QASM
 
 def bell : QASM.Program :=
-  qasm {
+  begin_qasm
     OPENQASM 3.0;
     include "stdgates.inc";
     qubit[2] q;
@@ -30,7 +30,7 @@ def bell : QASM.Program :=
     h q[0];
     cx q[0], q[1];
     measure q -> c;
-  }
+  end_qasm
 
 #eval simulate bell
 ```

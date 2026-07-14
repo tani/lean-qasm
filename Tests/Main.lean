@@ -26,7 +26,7 @@ private def assertOk (actual : Except String Unit) (message : String) : IO Unit 
       throw (IO.userError s!"{message}: {error}")
 
 private def bell : QASM.Program :=
-  qasm {
+  begin_qasm
     OPENQASM 3.0;
     include "stdgates.inc";
 
@@ -38,21 +38,21 @@ private def bell : QASM.Program :=
 
     measure q[0] -> c[0];
     measure q[1] -> c[1];
-  }
+  end_qasm
 
 private def xProgram : QASM.Program :=
-  qasm {
+  begin_qasm
     OPENQASM 3.0;
     qubit[1] q;
     x q[0];
-  }
+  end_qasm
 
 private def unsupportedGateProgram : QASM.Program :=
-  qasm {
+  begin_qasm
     OPENQASM 3.0;
     qubit[1] q;
     y q[0];
-  }
+  end_qasm
 
 private def expectedBellQasm : String :=
   "OPENQASM 3.0;\n" ++

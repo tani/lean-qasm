@@ -19,7 +19,7 @@ program close to ordinary OpenQASM source.
 namespace QASM.Guide
 
 def bell : QASM.Program :=
-  qasm {
+  begin_qasm
     OPENQASM 3.0;
     include "stdgates.inc";
 
@@ -29,7 +29,7 @@ def bell : QASM.Program :=
     h q[0];
     cx q[0], q[1];
     measure q -> c;
-  }
+  end_qasm
 ```
 
 Register operations accept either an indexed element such as `q[0]` or a

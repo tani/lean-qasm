@@ -33,9 +33,9 @@ Programs can be executed directly:
 
 or:
 
-    #eval simulate qasm {
+    #eval simulate begin_qasm
       ...
-    }
+    end_qasm
 
 Qubit indexing is little endian:
 
@@ -352,7 +352,7 @@ def Program.toQasm (program : Program) : Except String String := do
 ## Embedded OpenQASM syntax
 
 The following syntax categories describe register references and statements.
-The `qasm` term syntax requires the unique version declaration first and then
+The `begin_qasm ... end_qasm` term syntax requires the unique version declaration first and then
 collects the remaining statements into a `QASM.Program`.
 
 ```lean
@@ -372,7 +372,7 @@ syntax ident qasmRef ";" : qasmStmt
 syntax ident qasmRef "," qasmRef ";" : qasmStmt
 
 syntax (name := qasmProgram)
-  "qasm" "{" "OPENQASM" scientific ";" qasmStmt* "}" : term
+  "begin_qasm" "OPENQASM" scientific ";" qasmStmt* "end_qasm" : term
 
 open Lean
 open Lean Macro
@@ -497,7 +497,7 @@ private def expandStmt :
         "unsupported OpenQASM statement"
 
 macro_rules
-  | `(qasm { OPENQASM $version:scientific; $stmts:qasmStmt* }) => do
+  | `(begin_qasm OPENQASM $version:scientific; $stmts:qasmStmt* end_qasm) => do
       ensureVersionAt version
 
       let init : LeanTermSyntax ←
