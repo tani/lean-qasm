@@ -16,10 +16,9 @@ lake test
 
 Import the library and construct a program with the `qasm` syntax:
 
-````lean
+```lean
 import Qasmv
 
-```lean
 open Qasm
 
 def bell : Qasm.Program :=
@@ -35,7 +34,6 @@ def bell : Qasm.Program :=
 
 #eval execute bell
 ```
-````
 
 Because the core module is written with LiterateLean, commands following
 `import Qasmv` belong in a `lean` fenced block as shown above. Markdown prose
@@ -47,11 +45,9 @@ The source includes API documentation on public declarations and a literate,
 compiler-checked walkthrough in `Qasmv/Guide.lean`. Import it directly when
 exploring the documented examples:
 
-````lean
+```lean
 import Qasmv.Guide
 
-```lean
 #check Qasm.Guide.bell
 #check Qasm.Guide.runBell
 ```
-````

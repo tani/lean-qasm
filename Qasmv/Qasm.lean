@@ -1,5 +1,5 @@
-import Lean
-import LiterateLean
+    import Lean
+    import LiterateLean
 
 # Qasm embedded language and interpreter
 
@@ -48,60 +48,57 @@ namespace Qasm
 The syntax tree preserves register names and optional element indices. A
 missing index denotes a whole register operation.
 
+`Ref` represents a reference to a quantum or classical register. Its `name`
+field stores the source name and its optional `index` selects one zero based
+element. If `index` is `none`, the reference denotes the whole register.
+
+`Stmt` represents the supported statement forms:
+
+- `version` records an `OPENQASM major.minor;` declaration.
+- `includeFile` records an include directive without loading the file.
+- `qreg` and `creg` declare quantum and classical registers.
+- `gate1` and `gate2` apply named gates to one or two references.
+- `measure` copies a measured quantum result into classical storage.
+
+`Program` is the statements of a source file in their original order.
+
 ```lean
-
-/-- A reference to a quantum or classical register.
-
-When `index` is absent, the reference denotes the whole register. When it is
-present, it selects one zero-based register element.
--/
 structure Ref where
-  /-- The register name as it appears in OpenQASM source. -/
   name : String
-  /-- An optional zero-based element index. -/
   index : Option Nat
   deriving Repr, Inhabited, BEq
 
-/-- The abstract syntax of the supported OpenQASM 2.0 statement subset. -/
 inductive Stmt where
-  /-- An `OPENQASM major.minor;` version declaration. -/
   | version :
       Nat →
       Nat →
       Stmt
-  /-- An `include "file";` directive. Includes are recorded but not loaded. -/
   | includeFile :
       String →
       Stmt
-  /-- A quantum-register declaration with its name and size. -/
   | qreg :
       String →
       Nat →
       Stmt
-  /-- A classical-register declaration with its name and size. -/
   | creg :
       String →
       Nat →
       Stmt
-  /-- A named single-qubit gate applied to one reference. -/
   | gate1 :
       String →
       Ref →
       Stmt
-  /-- A named two-qubit gate applied to two references. -/
   | gate2 :
       String →
       Ref →
       Ref →
       Stmt
-  /-- A measurement from a quantum reference into a classical reference. -/
   | measure :
       Ref →
       Ref →
       Stmt
   deriving Repr, Inhabited, BEq
 
-/-- An OpenQASM program represented as its statements in source order. -/
 abbrev Program := List Stmt
 ```
 
@@ -110,16 +107,17 @@ abbrev Program := List Stmt
 Each syntax node can be rendered back to normalized OpenQASM source. Programs
 place one statement on each line.
 
-```lean
+`Ref.toQasm` renders either a bare register name or an indexed reference.
+`Stmt.toQasm` renders one statement including its terminating semicolon.
+`Program.toQasm` joins the rendered statements with newline characters.
 
-/-- Render a register reference using OpenQASM syntax. -/
+```lean
 def Ref.toQasm : Ref → String
   | ⟨name, none⟩ =>
       name
   | ⟨name, some index⟩ =>
       s!"{name}[{index}]"
 
-/-- Render one abstract-syntax statement as OpenQASM 2.0 source. -/
 def Stmt.toQasm : Stmt → String
   | .version major minor =>
       s!"OPENQASM {major}.{minor};"
@@ -142,7 +140,6 @@ def Stmt.toQasm : Stmt → String
   | .measure src dst =>
       s!"measure {src.toQasm} -> {dst.toQasm};"
 
-/-- Render a program as newline-separated OpenQASM statements. -/
 def Program.toQasm (program : Program) : String :=
   String.intercalate "\n" (program.map Stmt.toQasm)
 ```
@@ -153,23 +150,25 @@ Validation walks statements in source order while accumulating declared
 registers. This enforces declaration before use and produces the earliest
 actionable error.
 
-```lean
+`RegisterKind` distinguishes quantum storage from classical storage.
+`RegisterInfo` pairs that kind with a positive register size, and `RegisterEnv`
+associates source names with their declarations.
 
-/-- Distinguishes quantum registers from classical registers during validation. -/
+`Program.validate` checks declaration order, register kinds, index bounds, and
+the OpenQASM version. It returns the first human readable error. Gate support
+is checked later by the interpreter rather than by static validation.
+
+```lean
 inductive RegisterKind where
   | quantum
   | classical
   deriving Repr, Inhabited, BEq
 
-/-- Static information recorded for a declared register. -/
 structure RegisterInfo where
-  /-- Whether the register stores qubits or classical bits. -/
   kind : RegisterKind
-  /-- The positive number of elements declared for the register. -/
   size : Nat
   deriving Repr, Inhabited, BEq
 
-/-- Register declarations accumulated while validating source order. -/
 abbrev RegisterEnv := List (String × RegisterInfo)
 
 private def lookupRegister?
@@ -276,11 +275,6 @@ private def validateStatements
       let env ← validateStmt env stmt
       validateStatements env rest
 
-/-- Check declaration order, register kinds, bounds, and the OpenQASM version.
-
-Validation returns the first human-readable error. It does not execute the
-program or check whether a gate name is supported by the interpreter.
--/
 def Program.validate (program : Program) : Except String Unit := do
   match program with
   | [] =>
@@ -447,43 +441,35 @@ macro_rules
 The interpreter uses a compact complex number type backed by Lean `Float`
 values. It is intended for executable simulation rather than exact proofs.
 
-```lean
+`CFloat` stores real and imaginary components. Its namespace provides zero,
+one, addition, subtraction, negation, real scaling, and squared magnitude.
 
-/-- A complex number backed by machine floating-point components. -/
+```lean
 structure CFloat where
-  /-- Real component. -/
   re : Float
-  /-- Imaginary component. -/
   im : Float
   deriving Repr, Inhabited
 
 namespace CFloat
 
-/-- The complex value zero. -/
 def zero : CFloat :=
   ⟨0.0, 0.0⟩
 
-/-- The complex value one. -/
 def one : CFloat :=
   ⟨1.0, 0.0⟩
 
-/-- Add two complex values componentwise. -/
 def add (lhs rhs : CFloat) : CFloat :=
   ⟨lhs.re + rhs.re, lhs.im + rhs.im⟩
 
-/-- Subtract two complex values componentwise. -/
 def sub (lhs rhs : CFloat) : CFloat :=
   ⟨lhs.re - rhs.re, lhs.im - rhs.im⟩
 
-/-- Negate both components of a complex value. -/
 def neg (value : CFloat) : CFloat :=
   ⟨-value.re, -value.im⟩
 
-/-- Scale a complex value by a real factor. -/
 def scale (factor : Float) (value : CFloat) : CFloat :=
   ⟨factor * value.re, factor * value.im⟩
 
-/-- Return the squared magnitude `re² + im²`. -/
 def normSq (value : CFloat) : Float :=
   value.re * value.re + value.im * value.im
 
@@ -495,26 +481,27 @@ end CFloat
 The machine stores one global state vector and maps each source register onto
 its quantum or classical runtime storage.
 
-```lean
+`QuantumRegisterInfo` records the first global qubit index and the number of
+consecutive qubits in a register. `ClassicalRegisterInfo` owns its bit array.
 
-/-- Runtime location of a quantum register in the global state vector. -/
+`Machine` is the internal interpreter state. Its amplitude array has
+`2 ^ qubitCount` entries, while its register tables map source names to runtime
+storage. `Machine.empty` is the zero qubit state with one amplitude equal to
+one.
+
+`ExecutionResult` exposes the total qubit count, the final little endian state
+vector, and classical registers in declaration order.
+
+```lean
 structure QuantumRegisterInfo where
-  /-- First global qubit index owned by the register. -/
   offset : Nat
-  /-- Number of consecutive qubits in the register. -/
   size : Nat
   deriving Repr, Inhabited
 
-/-- Mutable runtime contents of a classical register. -/
 structure ClassicalRegisterInfo where
   bits : Array Bool
   deriving Repr, Inhabited
 
-/-- Internal interpreter state.
-
-The amplitude array has `2 ^ qubitCount` entries. Register tables map source
-names to their runtime storage.
--/
 structure Machine where
   qubitCount : Nat
   amplitudes : Array CFloat
@@ -522,20 +509,15 @@ structure Machine where
   cregs : List (String × ClassicalRegisterInfo)
   deriving Repr, Inhabited
 
-/-- The initial zero-qubit machine, whose sole amplitude is one. -/
 def Machine.empty : Machine where
   qubitCount := 0
   amplitudes := #[CFloat.one]
   qregs := []
   cregs := []
 
-/-- Observable state returned after successful execution. -/
 structure ExecutionResult where
-  /-- Total number of allocated qubits. -/
   qubitCount : Nat
-  /-- Final state vector in little-endian basis-index order. -/
   amplitudes : Array CFloat
-  /-- Classical registers in declaration order. -/
   classical : List (String × Array Bool)
   deriving Repr, Inhabited
 
@@ -1163,6 +1145,10 @@ private def executeStatements
 Public execution validates first, initializes an empty machine, and exposes a
 snapshot containing the final state vector and classical registers.
 
+`Program.execute` starts from the all zero state. Measurement uses `IO`
+randomness and collapses the state vector. Static and runtime failures are
+returned as `Except.error` values rather than raised as exceptions.
+
 ```lean
 
 private def classicalSnapshot
@@ -1171,11 +1157,6 @@ private def classicalSnapshot
   machine.cregs.reverse.map
     (fun entry => (entry.1, entry.2.bits))
 
-/-- Validate and execute an OpenQASM program from the all-zero initial state.
-
-Measurement uses `IO` randomness and collapses the state vector. Static and
-runtime failures are returned as `Except.error` values rather than exceptions.
--/
 def Program.execute
     (program : Program) :
     IO (Except String ExecutionResult) := do
@@ -1202,10 +1183,15 @@ The `execute program` term is a readable shorthand for
 `Qasm.Program.execute program`.
 
 ```lean
-
-/-- Term syntax for `Qasm.Program.execute program`. -/
 macro "execute " program:term : term =>
   `(Qasm.Program.execute $program)
 
 end Qasm
 ```
+
+<!--
+vim: set filetype=markdown :
+Local Variables:
+mode: markdown
+End:
+-->
