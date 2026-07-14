@@ -241,6 +241,39 @@ private def testFrontend60 : IO Unit := do
               diagnostic.message == "'break' is only valid inside a loop")
             "top-level break diagnostic mismatch"
 
+private def testFrontend80 : IO Unit := do
+  let source :=
+    "OPENQASM 3.0;\n" ++
+    "defcalgrammar \"openpulse\";\n" ++
+    "pragma compiler optimize\n" ++
+    "@tool.note preserve\n" ++
+    "inv @ ctrl(2) @ phase(pi) q;\n" ++
+    "gphase(pi);\n" ++
+    "reset $0;\n" ++
+    "box[20ns] { delay[5ns] q; nop q; }\n" ++
+    "cal { play drive($0), gaussian(...); }\n" ++
+    "defcal x $0 { play drive($0), gaussian(...); }"
+  match QASM.parse source with
+  | .error error => throw (IO.userError s!"80% frontend parse failed: {error}")
+  | .ok program =>
+      assertTrue (program.statements.size == 8) "80% frontend statement count mismatch"
+      match QASM.parse program.toQasm with
+      | .error error => throw (IO.userError s!"80% frontend round trip failed: {error}")
+      | .ok reparsed => assertTrue (reparsed == program) "80% frontend round trip mismatch"
+      match QASM.check program with
+      | .error diagnostics =>
+          throw (IO.userError s!"80% semantic check failed: {repr diagnostics}")
+      | .ok checked =>
+          assertTrue
+            (checked.requiredCapabilities.contains .calibration)
+            "calibration capability should be reported"
+          assertTrue
+            (checked.requiredCapabilities.contains .timing)
+            "timing capability should be reported"
+          assertTrue
+            (checked.requiredCapabilities.contains .physicalQubit)
+            "physical-qubit capability should be reported"
+
 def run : IO Unit := do
   testValidation
   testPrettyPrinting
@@ -250,6 +283,7 @@ def run : IO Unit := do
   testFrontend20
   testFrontend40
   testFrontend60
+  testFrontend80
 
 end QASMTests
 

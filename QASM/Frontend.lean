@@ -224,13 +224,26 @@ structure ArgumentDefinition where
   name : String
   deriving Repr, Inhabited, BEq
 
+inductive GateModifier where
+  | inverse
+  | power (exponent : Expression)
+  | control (negative : Bool) (count : Option Expression)
+  deriving Repr, Inhabited, BEq
+
+structure Annotation where
+  keyword : String
+  content : Option String
+  deriving Repr, Inhabited, BEq
+
 inductive Statement where
   | includeFile (filename : String)
   | qubit (name : String) (size : Nat := 1)
   | bit (name : String) (size : Nat := 1)
   | qreg (name : String) (size : Nat := 1)
   | creg (name : String) (size : Nat := 1)
-  | gateCall (name : String) (parameters : Array Expression) (operands : Array Operand)
+  | gateCall (modifiers : Array GateModifier) (name : String)
+      (parameters : Array Expression) (designator : Option Expression)
+      (operands : Array Operand)
   | measure (source : Operand) (target : Option Operand)
   | reset (operand : Operand)
   | barrier (operands : Array Operand)
@@ -258,6 +271,14 @@ inductive Statement where
       (returnType : Option TypeSpec)
   | gateDefinition (name : String) (parameters qubits : Array String)
       (body : Array Statement)
+  | boxStatement (designator : Option Expression) (body : Array Statement)
+  | delayStatement (designator : Expression) (operands : Array Operand)
+  | nopStatement (operands : Array Operand)
+  | pragma (content : String)
+  | annotated (annotations : Array Annotation) (statement : Statement)
+  | calibrationGrammar (name : String)
+  | calStatement (body : String)
+  | defcalStatement (header body : String)
   deriving Repr, Inhabited, BEq
 
 structure Program where
@@ -567,6 +588,52 @@ private partial def parseStatement : GrammarParser Statement := do
         let operands ← parseOperandList
         expect ";"
         pure (.barrier operands)
+  | some ⟨.identifier "box", _⟩ =>
+      let _ ← consume
+      let designator ← parseDesignator?
+      pure (.boxStatement designator (← parseRequiredScope))
+  | some ⟨.identifier "delay", _⟩ =>
+      let _ ← consume
+      let designator ← parseDesignator?
+      let designator ← match designator with
+        | some value => pure value
+        | none => failAtCurrent "delay requires a designator"
+      let operands ← if ← accept ";" then pure #[] else
+        let operands ← parseOperandList
+        expect ";"
+        pure operands
+      pure (.delayStatement designator operands)
+  | some ⟨.identifier "nop", _⟩ =>
+      let _ ← consume
+      if ← accept ";" then pure (.nopStatement #[])
+      else
+        let operands ← parseOperandList
+        expect ";"
+        pure (.nopStatement operands)
+  | some ⟨.identifier "defcalgrammar", _⟩ =>
+      let _ ← consume
+      let name ← match (← consume).kind with
+        | .stringLiteral value => pure value
+        | _ => failAtCurrent "expected calibration grammar string"
+      expect ";"
+      pure (.calibrationGrammar name)
+  | some ⟨.identifier "cal", _⟩ =>
+      let _ ← consume
+      expect "{"
+      pure (.calStatement (← collectBlockText))
+  | some ⟨.identifier "defcal", _⟩ =>
+      let _ ← consume
+      let header ← collectUntilBlock
+      pure (.defcalStatement header (← collectBlockText))
+  | some ⟨.identifier "pragma", _⟩ =>
+      let _ ← consume
+      pure (.pragma (← collectLineText))
+  | some ⟨.symbol "#", _⟩ =>
+      let _ ← consume
+      expect "pragma"
+      pure (.pragma (← collectLineText))
+  | some ⟨.symbol "@", _⟩ =>
+      pure (.annotated (← parseAnnotations) (← parseStatement))
   | some ⟨.identifier "if", _⟩ =>
       let _ ← consume
       expect "("
@@ -629,29 +696,122 @@ private partial def parseStatement : GrammarParser Statement := do
       let qubits ← parseNameList "{"
       pure (.gateDefinition name parameters qubits (← parseBlockStatements))
   | some ⟨.identifier direction, _⟩ =>
-      if direction == "input" || direction == "output" then
-        let _ ← consume
-        let type ← parseType
-        let name ← parseIdentifier
-        expect ";"
-        pure (.ioDeclaration (direction == "input") type name)
-      else if direction == "let" then
-        let _ ← consume
-        let name ← parseIdentifier
-        expect "="
-        let value ← parseExpression
-        expect ";"
-        pure (.aliasDeclaration name value)
-      else if isScalarTypeName direction || direction == "array" then
-        let type ← parseType
-        let name ← parseIdentifier
-        let initializer ← if ← accept "=" then some <$> parseExpression else pure none
-        expect ";"
-        pure (.classicalDeclaration type name initializer)
-      else parseIdentifierLedStatement
-  | _ => failAtCurrent "unsupported OpenQASM statement in the 60% frontend"
+      if direction == "inv" || direction == "pow" ||
+          direction == "ctrl" || direction == "negctrl" then
+        parseGateCall (← parseGateModifiers)
+      else if direction == "gphase" then parseGateCall #[]
+      else parseNonAdvancedIdentifier direction
+  | _ => failAtCurrent "unsupported OpenQASM statement in the 80% frontend"
 
 where
+  parseDesignator? : GrammarParser (Option Expression) := do
+    if ← accept "[" then
+      let value ← parseExpression
+      expect "]"
+      pure (some value)
+    else pure none
+
+  collectLineText : GrammarParser String := do
+    let cursor ← get
+    let rec loop (index : Nat) (parts : List String) : String × Nat :=
+      match cursor.tokens[index]? with
+      | none | some ⟨.newline, _⟩ => (String.intercalate " " parts.reverse, index + 1)
+      | some token => loop (index + 1) (tokenText token.kind :: parts)
+    let (content, index) := loop cursor.index []
+    set { cursor with index := min index cursor.tokens.size }
+    pure content
+
+  collectBlockText (depth : Nat := 1) (parts : List String := []) :
+      GrammarParser String := do
+    let token ← consume
+    match token.kind with
+    | .symbol "{" => collectBlockText (depth + 1) ("{" :: parts)
+    | .symbol "}" =>
+        if depth == 1 then pure (String.intercalate " " parts.reverse)
+        else collectBlockText (depth - 1) ("}" :: parts)
+    | kind => collectBlockText depth (tokenText kind :: parts)
+
+  collectUntilBlock (parts : List String := []) : GrammarParser String := do
+    let token ← consume
+    match token.kind with
+    | .symbol "{" => pure (String.intercalate " " parts.reverse)
+    | kind => collectUntilBlock (tokenText kind :: parts)
+
+  parseAnnotations (annotations : Array Annotation := #[]) :
+      GrammarParser (Array Annotation) := do
+    expect "@"
+    let first ← parseIdentifier
+    let rec parseSuffix (keyword : String) : GrammarParser String := do
+      if ← accept "." then parseSuffix (keyword ++ "." ++ (← parseIdentifier))
+      else pure keyword
+    let keyword ← parseSuffix first
+    let content := (← collectLineText).trimAscii.copy
+    let annotation : Annotation := ⟨keyword, if content.isEmpty then none else some content⟩
+    let annotations := annotations.push annotation
+    match ← current? with
+    | some ⟨.symbol "@", _⟩ => parseAnnotations annotations
+    | _ => pure annotations
+
+  parseGateModifiers (modifiers : Array GateModifier := #[]) :
+      GrammarParser (Array GateModifier) := do
+    match ← current? with
+    | some ⟨.identifier "inv", _⟩ =>
+        let _ ← consume
+        expect "@"
+        parseGateModifiers (modifiers.push .inverse)
+    | some ⟨.identifier "pow", _⟩ =>
+        let _ ← consume
+        expect "("
+        let exponent ← parseExpression
+        expect ")"
+        expect "@"
+        parseGateModifiers (modifiers.push (.power exponent))
+    | some ⟨.identifier name, _⟩ =>
+        if name == "ctrl" || name == "negctrl" then
+          let _ ← consume
+          let count ← if ← accept "(" then
+            let count ← parseExpression
+            expect ")"
+            pure (some count)
+          else pure none
+          expect "@"
+          parseGateModifiers (modifiers.push (.control (name == "negctrl") count))
+        else pure modifiers
+    | _ => pure modifiers
+
+  parseGateCall (modifiers : Array GateModifier) : GrammarParser Statement := do
+    let name ← parseIdentifier
+    let parameters ← if ← accept "(" then parseExpressionList ")" else pure #[]
+    let designator ← parseDesignator?
+    if name == "gphase" && (← accept ";") then
+      pure (.gateCall modifiers name parameters designator #[])
+    else
+      let operands ← parseOperandList
+      expect ";"
+      pure (.gateCall modifiers name parameters designator operands)
+
+  parseNonAdvancedIdentifier (direction : String) : GrammarParser Statement := do
+    if direction == "input" || direction == "output" then
+      let _ ← consume
+      let type ← parseType
+      let name ← parseIdentifier
+      expect ";"
+      pure (.ioDeclaration (direction == "input") type name)
+    else if direction == "let" then
+      let _ ← consume
+      let name ← parseIdentifier
+      expect "="
+      let value ← parseExpression
+      expect ";"
+      pure (.aliasDeclaration name value)
+    else if isScalarTypeName direction || direction == "array" then
+      let type ← parseType
+      let name ← parseIdentifier
+      let initializer ← if ← accept "=" then some <$> parseExpression else pure none
+      expect ";"
+      pure (.classicalDeclaration type name initializer)
+    else parseIdentifierLedStatement
+
   parseBlockStatements (statements : Array Statement := #[]) :
       GrammarParser (Array Statement) := do
     if ← accept "}" then pure statements
@@ -751,7 +911,7 @@ where
           let parameters ← if ← accept "(" then parseExpressionList ")" else pure #[]
           let operands ← parseOperandList
           expect ";"
-          pure (.gateCall name parameters operands)
+          pure (.gateCall #[] name parameters none operands)
 
 
 private partial def parseStatements (statements : Array Statement := #[]) :
@@ -817,6 +977,14 @@ partial def TypeSpec.toQasm : TypeSpec → String
   | .arrayRef mutable element _ (some count) =>
       let qualifier := if mutable then "mutable" else "readonly"
       s!"{qualifier} array[{element.toQasm}, #dim={count.toQasm}]"
+private def GateModifier.toQasm : GateModifier → String
+  | .inverse => "inv @ "
+  | .power exponent => s!"pow({exponent.toQasm}) @ "
+  | .control false none => "ctrl @ "
+  | .control true none => "negctrl @ "
+  | .control false (some count) => s!"ctrl({count.toQasm}) @ "
+  | .control true (some count) => s!"negctrl({count.toQasm}) @ "
+
 partial def Statement.toQasm : Statement → String
   | .includeFile filename => s!"include \"{filename}\";"
   | .qubit name 1 => s!"qubit {name};"
@@ -827,10 +995,13 @@ partial def Statement.toQasm : Statement → String
   | .qreg name size => s!"qreg {name}[{size}];"
   | .creg name 1 => s!"creg {name};"
   | .creg name size => s!"creg {name}[{size}];"
-  | .gateCall name parameters operands =>
+  | .gateCall modifiers name parameters designator operands =>
+      let modifiers := String.join (modifiers.toList.map GateModifier.toQasm)
       let parameters := if parameters.isEmpty then ""
         else s!"({String.intercalate ", " (parameters.toList.map Expression.toQasm)})"
-      s!"{name}{parameters} {joinOperands operands};"
+      let designator := designator.map (fun value => s!"[{value.toQasm}]") |>.getD ""
+      let operands := if operands.isEmpty then "" else " " ++ joinOperands operands
+      s!"{modifiers}{name}{parameters}{designator}{operands};"
   | .measure source none => s!"measure {source.toQasm};"
   | .measure source (some target) => s!"measure {source.toQasm} -> {target.toQasm};"
   | .reset operand => s!"reset {operand.toQasm};"
@@ -874,9 +1045,30 @@ partial def Statement.toQasm : Statement → String
       let parameters := if parameters.isEmpty then ""
         else s!"({String.intercalate ", " parameters.toList})"
       s!"gate {name}{parameters} {String.intercalate ", " qubits.toList} {block body}"
+  | .boxStatement designator body =>
+      let designator := designator.map (fun value => s!"[{value.toQasm}] ") |>.getD ""
+      s!"box {designator}{block body}"
+  | .delayStatement designator operands =>
+      let operands := if operands.isEmpty then "" else " " ++ joinOperands operands
+      s!"delay[{designator.toQasm}]{operands};"
+  | .nopStatement operands =>
+      if operands.isEmpty then "nop;" else s!"nop {joinOperands operands};"
+  | .pragma content => if content.isEmpty then "pragma" else s!"pragma {content}"
+  | .annotated annotations statement =>
+      let annotations := annotations.toList.map fun annotation =>
+        match annotation.content with
+        | none => s!"@{annotation.keyword}"
+        | some content => s!"@{annotation.keyword} {content}"
+      String.intercalate "\n" (annotations ++ [statement.toQasm])
+  | .calibrationGrammar name => s!"defcalgrammar \"{name}\";"
+  | .calStatement body => s!"cal {rawBlock body}"
+  | .defcalStatement header body => s!"defcal {header} {rawBlock body}"
 where
   indent (source : String) : String :=
     String.intercalate "\n" (source.splitOn "\n" |>.map fun line => "  " ++ line)
+
+  rawBlock (body : String) : String :=
+    if body.isEmpty then "{}" else "{ " ++ body ++ " }"
 
   block (statements : Array Statement) : String :=
     if statements.isEmpty then "{}"

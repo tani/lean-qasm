@@ -140,9 +140,72 @@ private partial def controlFlowDiagnostics
     | _ => pure ()
   return diagnostics
 
+inductive Capability where
+  | externalFunction
+  | calibration
+  | timing
+  | physicalQubit
+  deriving Repr, Inhabited, BEq
+
+private def pushCapability (capabilities : Array Capability) (capability : Capability) :
+    Array Capability :=
+  if capabilities.contains capability then capabilities else capabilities.push capability
+
+private def operandCapabilities (capabilities : Array Capability) (operand : Operand) :
+    Array Capability :=
+  match operand with
+  | .hardware _ => pushCapability capabilities .physicalQubit
+  | _ => capabilities
+
+private partial def collectCapabilities (statements : Array Statement)
+    (initial : Array Capability := #[]) : Array Capability := Id.run do
+  let mut capabilities := initial
+  for statement in statements do
+    match statement with
+    | .externStatement .. =>
+        capabilities := pushCapability capabilities .externalFunction
+    | .calibrationGrammar .. | .calStatement .. | .defcalStatement .. =>
+        capabilities := pushCapability capabilities .calibration
+    | .delayStatement _ operands =>
+        capabilities := pushCapability capabilities .timing
+        for operand in operands do
+          capabilities := operandCapabilities capabilities operand
+    | .boxStatement designator body =>
+        if designator.isSome then capabilities := pushCapability capabilities .timing
+        capabilities := collectCapabilities body capabilities
+    | .gateCall _ _ _ designator operands =>
+        if designator.isSome then capabilities := pushCapability capabilities .timing
+        for operand in operands do
+          capabilities := operandCapabilities capabilities operand
+    | .measure source target =>
+        capabilities := operandCapabilities capabilities source
+        match target with
+        | some operand => capabilities := operandCapabilities capabilities operand
+        | none => pure ()
+    | .reset operand =>
+        capabilities := operandCapabilities capabilities operand
+    | .barrier operands | .nopStatement operands =>
+        for operand in operands do
+          capabilities := operandCapabilities capabilities operand
+    | .scope body | .whileStatement _ body | .forStatement _ _ _ body |
+        .gateDefinition _ _ _ body =>
+        capabilities := collectCapabilities body capabilities
+    | .ifStatement _ thenBody elseBody =>
+        capabilities := collectCapabilities thenBody capabilities
+        match elseBody with
+        | some body => capabilities := collectCapabilities body capabilities
+        | none => pure ()
+    | .defStatement _ _ _ body =>
+        capabilities := collectCapabilities body capabilities
+    | .annotated _ statement =>
+        capabilities := collectCapabilities #[statement] capabilities
+    | _ => pure ()
+  return capabilities
+
 structure CheckedProgram where
   program : Program
   constants : ValueEnvironment
+  requiredCapabilities : Array Capability
   deriving Inhabited
 
 def check (program : Program) : Except (Array Diagnostic) CheckedProgram := do
@@ -159,11 +222,14 @@ def check (program : Program) : Except (Array Diagnostic) CheckedProgram := do
           | .error diagnostic => diagnostics := diagnostics.push diagnostic
     | _ => pure ()
   diagnostics := diagnostics ++ controlFlowDiagnostics 0 false program.statements
-  if diagnostics.isEmpty then pure ⟨program, environment⟩ else throw diagnostics
+  if diagnostics.isEmpty then
+    pure ⟨program, environment, collectCapabilities program.statements⟩
+  else throw diagnostics
 
 end Frontend
 
 abbrev Diagnostic := Frontend.Diagnostic
+abbrev Capability := Frontend.Capability
 abbrev CheckedSourceProgram := Frontend.CheckedProgram
 
 def check (program : SourceProgram) : Except (Array Diagnostic) CheckedSourceProgram :=
