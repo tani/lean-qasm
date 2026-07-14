@@ -5,215 +5,477 @@ namespace QASMTests
 open QASM
 
 private def assertTrue (condition : Bool) (message : String) : IO Unit :=
-  unless condition do
-    throw (IO.userError message)
+  unless condition do throw (IO.userError message)
 
-private def assertError
-    {α : Type}
-    (actual : Except String α)
-    (expected : String) : IO Unit :=
-  match actual with
-  | .error message =>
-      assertTrue (message == expected) s!"expected error '{expected}', got '{message}'"
-  | .ok _ =>
-      throw (IO.userError s!"expected error '{expected}', got success")
-
-private def assertOk (actual : Except String Unit) (message : String) : IO Unit :=
-  match actual with
-  | .ok () =>
-      pure ()
-  | .error error =>
-      throw (IO.userError s!"{message}: {error}")
-
-private def bell : QASM.Program :=
+def nativeSource : String :=
   begin_qasm
-    OPENQASM 3.0;
-    include "stdgates.inc";
-
-    qubit[2] q;
-    bit[2] c;
-
-    h q[0];
-    cx q[0], q[1];
-
-    measure q[0] -> c[0];
-    measure q[1] -> c[1];
+OPENQASM 3.0;
+output int[32] result;
+int[32] x = 0;
+for uint i in [0:3] {
+  if (i == 2) { continue; }
+  x += 1;
+}
+while (x < 10) {
+  x += 1;
+  if (x == 5) { break; }
+}
+result = x;
   end_qasm
 
-private def xProgram : QASM.Program :=
+elab_qasm NativeControl (nativeSource)
+
+def inputSource : String :=
   begin_qasm
-    OPENQASM 3.0;
-    qubit[1] q;
-    x q[0];
+OPENQASM 3.0;
+input int[32] value;
+output int[32] result;
+result = value + 1;
   end_qasm
 
-private def unsupportedGateProgram : QASM.Program :=
+elab_qasm NativeInput (inputSource)
+
+def quantumSource : String :=
   begin_qasm
-    OPENQASM 3.0;
-    qubit[1] q;
-    y q[0];
+OPENQASM 3.0;
+include "stdgates.inc";
+const int[32] repetitions = 1;
+gate pair a, b {
+  for uint i in [0:repetitions - 1] { h a; cx a, b; }
+}
+output bit[2] result;
+qubit[2] q;
+bit[2] c;
+let selected = q[{0, 1}];
+pair q[0], q[1];
+inv @ cx q[0], q[1];
+ctrl @ x selected[0], selected[1];
+barrier q;
+reset q[0];
+c = measure q;
+result = c;
   end_qasm
 
-private def expectedBellQasm : String :=
-  "OPENQASM 3.0;\n" ++
-  "include \"stdgates.inc\";\n" ++
-  "qubit[2] q;\n" ++
-  "bit[2] c;\n" ++
-  "h q[0];\n" ++
-  "cx q[0], q[1];\n" ++
-  "measure q[0] -> c[0];\n" ++
-  "measure q[1] -> c[1];"
+elab_qasm PortableQuantum (quantumSource)
 
-private def testValidation : IO Unit := do
-  assertTrue (QASM.isValidIdentifier "_q2") "ASCII subset identifier should validate"
-  assertTrue (!QASM.isValidIdentifier "im") "lexer token im should be reserved"
-  assertTrue
-    (!QASM.isValidIncludeFilename "bad\nfile")
-    "include filenames should reject newlines"
-  assertTrue
-    (!QASM.isValidIncludeFilename "bad\tfile")
-    "include filenames should reject tabs"
-  assertOk bell.validate "the Bell program should validate"
-  assertError
-    (QASM.Program.validate ([] : QASM.Program))
-    "empty OpenQASM program"
-  assertError
-    (QASM.Program.validate ([QASM.Stmt.qubit "q" 1] : QASM.Program))
-    "the first statement must be `OPENQASM 3.0;`"
-  assertError
-    (QASM.Program.validate [QASM.Stmt.version 2 0])
-    "unsupported OpenQASM version: 2.0"
-  assertError
-    (QASM.Program.validate [QASM.Stmt.version 3 0, QASM.Stmt.version 3 0])
-    "duplicate OpenQASM version declaration"
-  assertError
-    (QASM.Program.validate [QASM.Stmt.version 3 0, QASM.Stmt.qubit "bad-name" 1])
-    "invalid OpenQASM identifier: bad-name"
-  assertError
-    (QASM.Program.validate [QASM.Stmt.version 3 0, QASM.Stmt.qubit "measure" 1])
-    "invalid OpenQASM identifier: measure"
-  assertError
-    (QASM.Program.validate [QASM.Stmt.version 3 0, QASM.Stmt.qubit "im" 1])
-    "invalid OpenQASM identifier: im"
-  assertError
-    (QASM.Program.validate [QASM.Stmt.version 3 0, QASM.Stmt.includeFile ""])
-    "invalid OpenQASM include filename: "
-  assertError
-    (QASM.Program.validate [QASM.Stmt.version 3 0, QASM.Stmt.includeFile "bad\"file"])
-    "invalid OpenQASM include filename: bad\"file"
-  assertError
-    (QASM.Program.validate [
-      QASM.Stmt.version 3 0,
-      QASM.Stmt.qubit "q" 1,
-      QASM.Stmt.gate1 "bad-gate" ⟨"q", none⟩
-    ])
-    "invalid OpenQASM identifier: bad-gate"
+def subroutineSource : String :=
+  begin_qasm
+OPENQASM 3.0;
+def bump(int[32] value) -> int[32] {
+  value += 1;
+  return value;
+}
+output int[32] result;
+result = bump(20) + bump(20);
+  end_qasm
 
-private def testPrettyPrinting : IO Unit := do
-  match bell.toQasm with
-  | .error message =>
-      throw (IO.userError s!"Bell serialization failed: {message}")
-  | .ok source =>
-      assertTrue (source == expectedBellQasm) "Bell program pretty-print mismatch"
+elab_qasm NativeSubroutine (subroutineSource)
 
-  assertError
-    (QASM.Program.toQasm [QASM.Stmt.version 3 0, QASM.Stmt.bit "bit" 1])
-    "invalid OpenQASM identifier: bit"
+def mutableArraySource : String :=
+  begin_qasm
+OPENQASM 3.0;
+def update(mutable array[int[32], 2] values) {
+  values[0] = 20;
+  values[1] = 22;
+}
+output int[32] result;
+array[int[32], 2] values = {0, 0};
+update(values);
+result = values[0] + values[1];
+  end_qasm
 
-private def testDeterministicExecution : IO Unit := do
-  match ← simulate xProgram with {} with
-  | .error message =>
-      throw (IO.userError s!"x program failed: {message}")
-  | .ok result =>
-      assertTrue (result.qubitCount == 1) "x program should allocate one qubit"
-      assertTrue (result.amplitudes.size == 2) "x program should have two amplitudes"
-      assertTrue
-        (result.amplitudes[0]!.re == 0.0 && result.amplitudes[0]!.im == 0.0)
-        "x program should clear the |0> amplitude"
-      assertTrue
-        (result.amplitudes[1]!.re == 1.0 && result.amplitudes[1]!.im == 0.0)
-        "x program should produce the |1> state"
+elab_qasm MutableArrayReference (mutableArraySource)
 
-private def testBellMeasurement : IO Unit := do
-  match ← simulate bell with {} with
-  | .error message =>
-      throw (IO.userError s!"Bell program failed: {message}")
-  | .ok result =>
-      match result.classical with
-      | [(name, bits)] =>
-          assertTrue (name == "c") "Bell result should contain classical register c"
-          assertTrue (bits.size == 2) "classical register c should have two bits"
-          assertTrue (bits[0]! == bits[1]!) "Bell measurements should be correlated"
-      | _ =>
-          throw (IO.userError "Bell result should contain exactly one classical register")
+elab_qasm IncludedFile from "Fixtures/Elab/file_program.qasm"
 
-private def testRuntimeError : IO Unit := do
-  match ← simulate unsupportedGateProgram with {} with
-  | .error message =>
-      assertTrue
-        (message == "unsupported one-qubit gate: y")
-        s!"unexpected unsupported-gate error: {message}"
-  | .ok _ =>
-      throw (IO.userError "unsupported gate should fail during execution")
+def arraySource : String :=
+  begin_qasm
+OPENQASM 3.0;
+output int[32] sum;
+output int[32] second_dimension;
+array[int[32], 4] values = {5, 6, 7, 8};
+array[int[32], 2, 3] matrix;
+values[0:1] = {20, 22};
+sum = values[0] + values[1];
+second_dimension = sizeof(matrix, 1);
+  end_qasm
 
-  match ← simulate xProgram with { maxQubits := 0 } with
-  | .error message =>
-      assertTrue
-        (message == "simulation requires 1 qubits, exceeding maxQubits=0")
-        s!"unexpected max-qubit error: {message}"
-  | .ok _ =>
-      throw (IO.userError "maxQubits should be enforced before allocation")
+elab_qasm NativeArrays (arraySource)
 
-private def testFrontend20 : IO Unit := do
-  let source :=
+def metadataSource : String :=
+  begin_qasm
+OPENQASM 3.0;
+pragma compiler optimize
+@tool.note preserve
+int[32] value = 1;
+  end_qasm
+
+elab_qasm MetadataProgram (metadataSource)
+
+def complexSource : String :=
+  begin_qasm
+OPENQASM 3.0;
+output float[64] real_part;
+output float[64] imaginary_part;
+complex value = 2.5 + 3.5im;
+real_part = real(value);
+imaginary_part = imag(value);
+  end_qasm
+
+elab_qasm NativeComplex (complexSource)
+
+def extendedSource : String :=
+  begin_qasm
+OPENQASM 3.0;
+output int[32] result;
+int[32] value = 2;
+switch (value) {
+  case 1 { result = 10; }
+  case 2 { result = 20; }
+  default { result = 30; }
+}
+  end_qasm
+
+def extendedOptions : ElabOptions := { dialect := .extended }
+
+elab_qasm ExtendedSwitch (extendedSource) using extendedOptions
+
+def durationSource : String :=
+  begin_qasm
+OPENQASM 3.0;
+output duration elapsed;
+elapsed = 5ns + 2us;
+  end_qasm
+
+elab_qasm NativeDuration (durationSource)
+
+def typedArrayIOSource : String :=
+  begin_qasm
+OPENQASM 3.0;
+input array[int[8], 2] values;
+output array[int[8], 2] result;
+result = values;
+  end_qasm
+
+elab_qasm TypedArrayIO (typedArrayIOSource)
+
+def arrayCastSource : String :=
+  begin_qasm
+OPENQASM 3.0;
+output array[uint[8], 2] result;
+array[int[16], 2] values = {20, 22};
+result = array[uint[8], 2](values);
+  end_qasm
+
+elab_qasm NativeArrayCast (arrayCastSource)
+
+def scalarForSource : String :=
+  begin_qasm
+OPENQASM 3.0;
+output float[64] result;
+result = 0.0;
+for float[64] value in {20, 22} {
+  result += value;
+}
+  end_qasm
+
+elab_qasm NativeScalarFor (scalarForSource)
+
+def modifiedUserGateSource : String :=
+  begin_qasm
+OPENQASM 3.0;
+include "stdgates.inc";
+gate pair a, b { h a; x b; }
+qubit[3] q;
+ctrl @ pair q[0], q[1], q[2];
+inv @ pair q[1], q[2];
+  end_qasm
+
+elab_qasm ModifiedUserGate (modifiedUserGateSource)
+
+def recursiveSource : String :=
+  begin_qasm
+OPENQASM 3.0;
+def factorial(int[32] value) -> int[32] {
+  if (value <= 1) { return 1; }
+  return value * factorial(value - 1);
+}
+output int[32] result;
+result = factorial(5);
+  end_qasm
+
+elab_qasm RecursiveSubroutine (recursiveSource)
+
+def indexedMeasurementSource : String :=
+  begin_qasm
+OPENQASM 3.0;
+output bit[2] result;
+qubit[2] q;
+bit[2] measured;
+measure q[1] -> measured[0];
+measured[1] = measure q[1];
+result = measured;
+  end_qasm
+
+elab_qasm IndexedMeasurement (indexedMeasurementSource)
+
+structure TestState where
+  nextQubit : Nat := 0
+  operations : Array String := #[]
+  deriving Repr
+
+abbrev TestM := StateM TestState
+
+private def unitaryLabel : Unitary Nat -> String
+  | .U .. => "U"
+  | .gphase _ => "gphase"
+  | .named name _ _ => name
+  | .sequence _ => "sequence"
+  | .inverse operation => "inv:" ++ unitaryLabel operation
+  | .power _ operation => "pow:" ++ unitaryLabel operation
+  | .controlled _ controls operation =>
+      s!"ctrl{controls.size}:" ++ unitaryLabel operation
+
+instance : QuantumBackend TestM Nat String where
+  allocate count := do
+    let state <- get
+    set { state with nextQubit := state.nextQubit + count }
+    modify fun state =>
+      { state with operations := state.operations.push s!"allocate:{count}" }
+    pure (.ok (Array.range count |>.map (fun index => state.nextQubit + index)))
+  apply operation := do
+    modify fun state => { state with operations := state.operations.push (unitaryLabel operation) }
+    pure (.ok ())
+  measure qubit := do
+    modify fun state => { state with operations := state.operations.push s!"measure:{qubit}" }
+    pure (.ok (qubit % 2 == 1))
+  reset qubit := do
+    modify fun state => { state with operations := state.operations.push s!"reset:{qubit}" }
+    pure (.ok ())
+  barrier _ := do
+    modify fun state => { state with operations := state.operations.push "barrier" }
+    pure (.ok ())
+
+private def runNative :=
+  Id.run ((NativeControl.run (qasmM := TestM) {}) |>.run {})
+
+private def runInput :=
+  Id.run ((NativeInput.run (qasmM := TestM) { value := SInt.ofInt 41 }) |>.run {})
+
+private def runQuantum :=
+  Id.run ((PortableQuantum.run (qasmM := TestM) {}) |>.run {})
+
+private def runSubroutine :=
+  Id.run ((NativeSubroutine.run (qasmM := TestM) {}) |>.run {})
+
+private def runMutableArray :=
+  Id.run ((MutableArrayReference.run (qasmM := TestM) {}) |>.run {})
+
+private def runIncludedFile :=
+  Id.run ((IncludedFile.run (qasmM := TestM) {}) |>.run {})
+
+private def runArrays :=
+  Id.run ((NativeArrays.run (qasmM := TestM) {}) |>.run {})
+
+private def runComplex :=
+  Id.run ((NativeComplex.run (qasmM := TestM) {}) |>.run {})
+
+private def runExtended :=
+  Id.run ((ExtendedSwitch.run (qasmM := TestM) {}) |>.run {})
+
+private def runDuration :=
+  Id.run ((NativeDuration.run (qasmM := TestM) {}) |>.run {})
+
+private def typedArrayInput : FixedArray (SInt 8) [2] :=
+  ⟨#[SInt.ofInt 20, SInt.ofInt 22], by decide⟩
+
+private def runTypedArrayIO :=
+  Id.run ((TypedArrayIO.run (qasmM := TestM) { values := typedArrayInput }) |>.run {})
+
+private def runArrayCast :=
+  Id.run ((NativeArrayCast.run (qasmM := TestM) {}) |>.run {})
+
+private def runScalarFor :=
+  Id.run ((NativeScalarFor.run (qasmM := TestM) {}) |>.run {})
+
+private def runModifiedUserGate :=
+  Id.run ((ModifiedUserGate.run (qasmM := TestM) {}) |>.run {})
+
+private def runRecursive :=
+  Id.run ((RecursiveSubroutine.run (qasmM := TestM) {}) |>.run {})
+
+private def runIndexedMeasurement :=
+  Id.run ((IndexedMeasurement.run (qasmM := TestM) {}) |>.run {})
+
+private def testRawSource : IO Unit := do
+  let expected :=
     "OPENQASM 3.0;\n" ++
-    "include \"stdgates.inc\";\n" ++
-    "qubit[2] 量子; // Unicode identifier\n" ++
-    "bit[2] c;\n" ++
-    "h 量子[0];\n" ++
-    "cx 量子[0], 量子[1];\n" ++
-    "barrier 量子;\n" ++
-    "measure 量子 -> c;"
-  match QASM.parse source with
-  | .error error =>
-      throw (IO.userError s!"20% frontend parse failed: {error}")
-  | .ok program =>
-      assertTrue (program.version == some ⟨3, 0⟩) "frontend should retain version 3.0"
-      assertTrue (program.statements.size == 7) "frontend statement count mismatch"
-      match QASM.parse program.toQasm with
-      | .error error =>
-          throw (IO.userError s!"frontend round trip failed: {error}")
-      | .ok reparsed =>
-          assertTrue (reparsed == program) "frontend normalized round trip mismatch"
+    "output int[32] result;\n" ++
+    "int[32] x = 0;\n" ++
+    "for uint i in [0:3] {\n" ++
+    "  if (i == 2) { continue; }\n" ++
+    "  x += 1;\n" ++
+    "}\n" ++
+    "while (x < 10) {\n" ++
+    "  x += 1;\n" ++
+    "  if (x == 5) { break; }\n" ++
+    "}\n" ++
+    "result = x;\n"
+  assertTrue (nativeSource == expected)
+    "begin_qasm/end_qasm must preserve the raw OpenQASM source"
 
-  match QASM.parse "qubit q; reset $0;" with
-  | .error error => throw (IO.userError s!"version-optional parse failed: {error}")
-  | .ok program => assertTrue program.version.isNone "version should be optional"
+private def testNativeControl : IO Unit := do
+  match runNative.1 with
+  | .error _ => throw (IO.userError "native control-flow program returned an error")
+  | .ok outputs =>
+      assertTrue (outputs.result.toInt == 5)
+        "for/if/continue/while/break did not execute with native Lean semantics"
 
-private def testFrontend40 : IO Unit := do
-  let source :=
-    "OPENQASM 3.0;\n" ++
-    "const int[32] n = 2 + 3 * 4;\n" ++
-    "input angle[64] theta;\n" ++
-    "bit[4] c = \"0011\";\n" ++
-    "uint[8] x = int[8](n) << 1;\n" ++
-    "let low = c[0];\n" ++
-    "x += 2;\n" ++
-    "foo(n, theta);"
-  match QASM.parse source with
-  | .error error => throw (IO.userError s!"40% frontend parse failed: {error}")
-  | .ok program =>
-      assertTrue (program.statements.size == 7) "40% frontend statement count mismatch"
-      match QASM.parse program.toQasm with
-      | .error error => throw (IO.userError s!"40% frontend round trip failed: {error}")
-      | .ok reparsed => assertTrue (reparsed == program) "40% frontend round trip mismatch"
-      match QASM.check program with
-      | .error diagnostics =>
-          throw (IO.userError s!"40% semantic check failed: {repr diagnostics}")
-      | .ok checked =>
-          assertTrue (checked.constants.length == 1) "constant environment mismatch"
+private def testInput : IO Unit := do
+  match runInput.1 with
+  | .error _ => throw (IO.userError "native input program returned an error")
+  | .ok outputs =>
+      assertTrue (outputs.result.toInt == 42) "generated typed Inputs value was not bound"
 
-private def testFrontend60 : IO Unit := do
+private def testQuantumBackend : IO Unit := do
+  match runQuantum.1 with
+  | .error _ => throw (IO.userError "portable quantum program returned an error")
+  | .ok outputs =>
+      assertTrue (outputs.result.toNat == 2) "measurement output mismatch"
+  let operations := runQuantum.2.operations
+  assertTrue (operations.contains "allocate:2") "qubit allocation was not delegated"
+  assertTrue (operations.contains "sequence") "h was not lowered to portable U/gphase IR"
+  assertTrue (operations.contains "inv:ctrl1:sequence")
+    "inverse standard-gate modifier was not retained"
+  assertTrue (operations.contains "ctrl1:sequence")
+    "control modifier did not separate one control from the gate target"
+  assertTrue (operations.contains "barrier") "barrier was not delegated"
+  assertTrue (operations.contains "reset:0") "reset was not delegated"
+  assertTrue (operations.contains "measure:0" && operations.contains "measure:1")
+    "measurement was not delegated per qubit"
+
+private def testSubroutine : IO Unit := do
+  match runSubroutine.1 with
+  | .error _ => throw (IO.userError "native subroutine program returned an error")
+  | .ok outputs =>
+      assertTrue (outputs.result.toInt == 42)
+        "OpenQASM def/call/return was not lowered to a native Lean function"
+
+private def testMutableArrayReference : IO Unit := do
+  match runMutableArray.1 with
+  | .error _ => throw (IO.userError "mutable array-reference program returned an error")
+  | .ok outputs =>
+      assertTrue (outputs.result.toInt == 42)
+        "mutable array-reference changes were not written back to the caller"
+
+private def testFileAndInclude : IO Unit := do
+  match runIncludedFile.1 with
+  | .error _ => throw (IO.userError "file/include program returned an error")
+  | .ok outputs =>
+      assertTrue (!outputs.result.value)
+        "included file measurement output mismatch"
+  assertTrue (runIncludedFile.2.operations.contains "sequence")
+    "relative include gate was not resolved and transpiled"
+  assertTrue (IncludedFile.program.origins.size == 2)
+    "root and recursively expanded include origins were not retained"
+
+private def testArrays : IO Unit := do
+  match runArrays.1 with
+  | .error _ => throw (IO.userError "portable array program returned an error")
+  | .ok outputs =>
+      assertTrue (outputs.sum.toInt == 42) "array slice assignment/indexing failed"
+      assertTrue (outputs.second_dimension.toInt == 3)
+        "multidimensional default shape or sizeof dimension failed"
+
+private def testMetadata : IO Unit := do
+  assertTrue (MetadataProgram.program.pragmas == #["compiler optimize"])
+    "pragma metadata was not retained"
+  assertTrue (MetadataProgram.program.annotations == #["@tool.note preserve"])
+    "annotation metadata was not retained"
+
+private def testComplex : IO Unit := do
+  match runComplex.1 with
+  | .error _ => throw (IO.userError "portable complex program returned an error")
+  | .ok outputs =>
+      assertTrue (outputs.real_part == 2.5) "complex real() result mismatch"
+      assertTrue (outputs.imaginary_part == 3.5) "complex imag() result mismatch"
+
+private def testExtendedDialect : IO Unit := do
+  match runExtended.1 with
+  | .error _ => throw (IO.userError "extended switch program returned an error")
+  | .ok outputs =>
+      assertTrue (outputs.result.toInt == 20) "extended switch selected the wrong case"
+
+private def testDuration : IO Unit := do
+  match runDuration.1 with
+  | .error _ => throw (IO.userError "portable SI-duration program returned an error")
+  | .ok outputs =>
+      assertTrue ((outputs.elapsed.seconds - 0.000002005).abs < 0.000000000001)
+        "SI duration literals were not converted to seconds"
+
+private def testTypedArrayIO : IO Unit := do
+  match runTypedArrayIO.1 with
+  | .error _ => throw (IO.userError "typed fixed-array I/O program returned an error")
+  | .ok outputs =>
+      assertTrue (outputs.result.data.map SInt.toInt == #[20, 22])
+        "fixed-array ValueCodec did not preserve shape or elements"
+
+private def testArrayCast : IO Unit := do
+  match runArrayCast.1 with
+  | .error _ => throw (IO.userError "array-cast program returned an error")
+  | .ok outputs =>
+      assertTrue (outputs.result.data.map UInt.toNat == #[20, 22])
+        "array cast did not convert every element or preserve shape"
+
+private def testScalarFor : IO Unit := do
+  match runScalarFor.1 with
+  | .error _ => throw (IO.userError "scalar for-loop program returned an error")
+  | .ok outputs =>
+      assertTrue (outputs.result == 42.0)
+        "for-loop values were not converted to the declared iterator type"
+
+private def testModifiedUserGate : IO Unit := do
+  match runModifiedUserGate.1 with
+  | .error _ => throw (IO.userError "modified user-gate program returned an error")
+  | .ok _ => pure ()
+  assertTrue (runModifiedUserGate.2.operations.contains "ctrl1:sequence")
+    "control modifier did not wrap the recorded user-gate definition"
+  assertTrue (runModifiedUserGate.2.operations.contains "inv:sequence")
+    "inverse modifier did not wrap the recorded user-gate definition"
+
+private def testRecursiveSubroutine : IO Unit := do
+  match runRecursive.1 with
+  | .error _ => throw (IO.userError "recursive subroutine returned an error")
+  | .ok outputs =>
+      assertTrue (outputs.result.toInt == 120)
+        "direct recursive subroutine was not lowered to a recursive Lean function"
+
+private def testIndexedMeasurement : IO Unit := do
+  match runIndexedMeasurement.1 with
+  | .error _ => throw (IO.userError "indexed-measurement program returned an error")
+  | .ok outputs =>
+      assertTrue (outputs.result.toNat == 3)
+        "measurement did not update the selected classical bit"
+
+private def testRuntimeValues : IO Unit := do
+  assertTrue ((Value.integerLiteral "0xff").asInt == 255) "hex literal conversion failed"
+  assertTrue ((Value.binary "+" (.integer 20) (.integer 22)).asInt == 42)
+    "integer addition failed"
+  assertTrue (Value.range (.integer 3) (.integer (-1)) (.integer 1) ==
+    #[.integer 3, .integer 2, .integer 1]) "descending range failed"
+  assertTrue ((Value.cast "uint" 4 (.integer 17)).asInt == 1)
+    "fixed-width uint cast did not wrap"
+  assertTrue ((Value.cast "int" 4 (.integer 15)).asInt == -1)
+    "fixed-width signed cast did not use two's complement"
+  assertTrue ((Value.builtin "mod" #[.integer 43, .integer 5]).asInt == 3)
+    "mod builtin failed"
+  assertTrue ((Value.builtin "rotl" #[.bits #[true, false, false, false], .integer 1]).asInt == 2)
+    "rotl builtin failed"
+  match TargetConfig.validate { floatWidth := 16 } with
+  | .error _ => pure ()
+  | .ok () => throw (IO.userError "unsupported target float width must be rejected")
+
+private def testFrontendRoundTrip : IO Unit := do
   let source :=
     "OPENQASM 3.0;\n" ++
     "def parity(int[32] n) -> bit {\n" ++
@@ -224,125 +486,105 @@ private def testFrontend60 : IO Unit := do
     "  }\n" ++
     "  return result;\n" ++
     "}\n" ++
-    "extern vote(bit[3]) -> bit;\n" ++
     "gate pair(theta) a, b { h a; cx a, b; }"
   match QASM.parse source with
-  | .error error => throw (IO.userError s!"60% frontend parse failed: {error}")
+  | .error error => throw (IO.userError s!"frontend parse failed: {error}")
   | .ok program =>
-      assertTrue (program.statements.size == 3) "60% frontend statement count mismatch"
       match QASM.parse program.toQasm with
-      | .error error => throw (IO.userError s!"60% frontend round trip failed: {error}")
-      | .ok reparsed => assertTrue (reparsed == program) "60% frontend round trip mismatch"
-      match QASM.check program with
-      | .error diagnostics =>
-          throw (IO.userError s!"60% semantic check failed: {repr diagnostics}")
-      | .ok _ => pure ()
+      | .error error => throw (IO.userError s!"frontend round trip failed: {error}")
+      | .ok reparsed =>
+          assertTrue (reparsed == program) "frontend normalized round trip mismatch"
 
-  match QASM.parse "break;" with
-  | .error error => throw (IO.userError s!"break syntax should parse: {error}")
+  let complexCast := "OPENQASM 3.0; complex[float[32]] value = complex[float[32]](1.0);"
+  match QASM.parse complexCast with
+  | .error error => throw (IO.userError s!"complex cast parse failed: {error}")
   | .ok program =>
-      match QASM.check program with
-      | .ok _ => throw (IO.userError "top-level break should fail static semantics")
-      | .error diagnostics =>
-          assertTrue
-            (diagnostics.any fun diagnostic =>
-              diagnostic.message == "'break' is only valid inside a loop")
-            "top-level break diagnostic mismatch"
+      match QASM.parse program.toQasm with
+      | .error error => throw (IO.userError s!"complex cast round trip failed: {error}")
+      | .ok reparsed => assertTrue (program == reparsed) "complex type/cast round trip mismatch"
 
-private def testFrontend80 : IO Unit := do
+  let arrayCast :=
+    "OPENQASM 3.0; array[int[16], 2] a = {1, 2}; " ++
+    "array[uint[8], 2] b = array[uint[8], 2](a);"
+  match QASM.parse arrayCast with
+  | .error error => throw (IO.userError s!"array cast parse failed: {error}")
+  | .ok program =>
+      match QASM.parse program.toQasm with
+      | .error error => throw (IO.userError s!"array cast round trip failed: {error}")
+      | .ok reparsed => assertTrue (program == reparsed) "array cast round trip mismatch"
+
+private def testCapabilityBoundary : IO Unit := do
   let source :=
     "OPENQASM 3.0;\n" ++
+    "extern lookup(int[32]) -> int[32];\n" ++
     "defcalgrammar \"openpulse\";\n" ++
-    "pragma compiler optimize\n" ++
-    "@tool.note preserve\n" ++
-    "inv @ ctrl(2) @ phase(pi) q;\n" ++
-    "gphase(pi);\n" ++
-    "reset $0;\n" ++
-    "box[20ns] { delay[5ns] q; nop q; }\n" ++
-    "cal { play drive($0), gaussian(...); }\n" ++
-    "defcal x $0 { play drive($0), gaussian(...); }"
+    "delay[5ns] $0;"
   match QASM.parse source with
-  | .error error => throw (IO.userError s!"80% frontend parse failed: {error}")
+  | .error error => throw (IO.userError s!"capability sample failed to parse: {error}")
   | .ok program =>
-      assertTrue (program.statements.size == 8) "80% frontend statement count mismatch"
-      match QASM.parse program.toQasm with
-      | .error error => throw (IO.userError s!"80% frontend round trip failed: {error}")
-      | .ok reparsed => assertTrue (reparsed == program) "80% frontend round trip mismatch"
       match QASM.check program with
-      | .error diagnostics =>
-          throw (IO.userError s!"80% semantic check failed: {repr diagnostics}")
+      | .error diagnostics => throw (IO.userError s!"capability check failed: {repr diagnostics}")
       | .ok checked =>
-          assertTrue
-            (checked.requiredCapabilities.contains .calibration)
-            "calibration capability should be reported"
-          assertTrue
-            (checked.requiredCapabilities.contains .timing)
-            "timing capability should be reported"
-          assertTrue
-            (checked.requiredCapabilities.contains .physicalQubit)
-            "physical-qubit capability should be reported"
-
-private def testFrontend100 : IO Unit := do
-  let source :=
-    "OPENQASM 3;\n" ++
-    "bit[4] c;\n" ++
-    "c[:1] = c[2:];\n" ++
-    "delay[5 ns];\n" ++
-    "switch (c[0]) {\n" ++
-    "  case 0, 1 { c[0] = measure $0; }\n" ++
-    "  default { end; }\n" ++
-    "}"
-  match QASM.parse source with
-  | .error error => throw (IO.userError s!"100% frontend parse failed: {error}")
-  | .ok program =>
-      match QASM.parse program.toQasm with
-      | .error error => throw (IO.userError s!"100% frontend round trip failed: {error}")
-      | .ok reparsed => assertTrue (reparsed == program) "100% frontend round trip mismatch"
+          assertTrue (checked.requiredCapabilities.contains .externalFunction)
+            "extern capability was not detected"
+          assertTrue (checked.requiredCapabilities.contains .calibration)
+            "calibration capability was not detected"
+          assertTrue (checked.requiredCapabilities.contains .timing)
+            "timing capability was not detected"
+          assertTrue (checked.requiredCapabilities.contains .physicalQubit)
+            "physical-qubit capability was not detected"
 
 private def testOfficialExamples : IO Unit := do
   let root : System.FilePath := "Tests/Fixtures/OpenQASM30/examples"
-  let paths ← root.walkDir
+  let paths <- root.walkDir
   let mut failures : Array String := #[]
   for path in paths do
     if path.extension == some "qasm" then
-      match ← QASM.parseFile path with
+      match <- QASM.parseFile path with
       | .ok _ => pure ()
       | .error error => failures := failures.push s!"{path}: {error}"
   unless failures.isEmpty do
-    throw (IO.userError
-      ("official OpenQASM 3.0 fixture failures:\n" ++
-        String.intercalate "\n" failures.toList))
+    throw (IO.userError ("official fixture failures:\n" ++
+      String.intercalate "\n" failures.toList))
 
 private def testOfficialInvalidFixtures : IO Unit := do
-  let root : System.FilePath :=
-    "Tests/Fixtures/OpenQASM30/source/grammar/tests/invalid"
-  let paths ← root.walkDir
+  let root : System.FilePath := "Tests/Fixtures/OpenQASM30/source/grammar/tests/invalid"
+  let paths <- root.walkDir
   let mut accepted : Array String := #[]
   for path in paths do
     if path.extension == some "qasm" then
-      match ← QASM.parseFile path with
+      match <- QASM.parseFile path with
       | .error _ => pure ()
       | .ok _ => accepted := accepted.push s!"{path}"
   unless accepted.isEmpty do
-    throw (IO.userError
-      ("invalid OpenQASM 3.0 fixtures unexpectedly accepted:\n" ++
-        String.intercalate "\n" accepted.toList))
+    throw (IO.userError ("invalid fixtures unexpectedly accepted:\n" ++
+      String.intercalate "\n" accepted.toList))
 
 def run : IO Unit := do
-  testValidation
-  testPrettyPrinting
-  testDeterministicExecution
-  testBellMeasurement
-  testRuntimeError
-  testFrontend20
-  testFrontend40
-  testFrontend60
-  testFrontend80
-  testFrontend100
+  testRawSource
+  testNativeControl
+  testInput
+  testQuantumBackend
+  testSubroutine
+  testMutableArrayReference
+  testFileAndInclude
+  testArrays
+  testMetadata
+  testComplex
+  testExtendedDialect
+  testDuration
+  testTypedArrayIO
+  testArrayCast
+  testScalarFor
+  testModifiedUserGate
+  testRecursiveSubroutine
+  testIndexedMeasurement
+  testRuntimeValues
+  testFrontendRoundTrip
+  testCapabilityBoundary
   testOfficialExamples
   testOfficialInvalidFixtures
 
 end QASMTests
 
-def main : IO Unit :=
-  QASMTests.run
+def main : IO Unit := QASMTests.run

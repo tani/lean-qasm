@@ -94,6 +94,7 @@ private partial def evalExpression (environment : ValueEnvironment) :
           | _ => throw ⟨s!"operator '{operator}' is not supported for booleans"⟩
       | _, _ => throw ⟨s!"incompatible operands for '{operator}'"⟩
   | .cast _ _ value => evalExpression environment value
+  | .arrayCast _ _ _ value => evalExpression environment value
   | .array values => .array <$> values.mapM (evalExpression environment)
   | .index value indices => do
       let value ← evalExpression environment value
@@ -178,16 +179,118 @@ private def pushCapability (capabilities : Array Capability) (capability : Capab
     Array Capability :=
   if capabilities.contains capability then capabilities else capabilities.push capability
 
-private def operandCapabilities (capabilities : Array Capability) (operand : Operand) :
-    Array Capability :=
+private def foldOption (value : Option α) (operation : β → α → β) (initial : β) : β :=
+  match value with
+  | some value => operation initial value
+  | none => initial
+
+mutual
+private partial def operandCapabilities
+    (capabilities : Array Capability) (operand : Operand) : Array Capability :=
   match operand with
   | .hardware _ => pushCapability capabilities .physicalQubit
+  | .identifier _ indices =>
+      indices.foldl (fun capabilities group =>
+        group.foldl expressionCapabilities capabilities) capabilities
+
+private partial def expressionCapabilities
+    (capabilities : Array Capability) (expression : Expression) : Array Capability :=
+  match expression with
+  | .literal (.timing raw) =>
+      if raw.endsWith "dt" then pushCapability capabilities .timing else capabilities
+  | .durationOf _ => pushCapability capabilities .timing
+  | .hardwareQubit _ => pushCapability capabilities .physicalQubit
+  | .unary _ operand => expressionCapabilities capabilities operand
+  | .binary _ left right =>
+      expressionCapabilities (expressionCapabilities capabilities left) right
+  | .call _ arguments | .set arguments | .array arguments =>
+      arguments.foldl expressionCapabilities capabilities
+  | .cast _ width value =>
+      let capabilities := foldOption width expressionCapabilities capabilities
+      expressionCapabilities capabilities value
+  | .arrayCast _ width dimensions value =>
+      let capabilities := foldOption width expressionCapabilities capabilities
+      let capabilities := dimensions.foldl expressionCapabilities capabilities
+      expressionCapabilities capabilities value
+  | .index value indices =>
+      indices.foldl expressionCapabilities (expressionCapabilities capabilities value)
+  | .range start step stop =>
+      let capabilities := foldOption start expressionCapabilities capabilities
+      let capabilities := foldOption step expressionCapabilities capabilities
+      foldOption stop expressionCapabilities capabilities
+  | .measure operand => operandCapabilities capabilities operand
+  | _ => capabilities
+end
+
+private partial def typeCapabilities
+    (capabilities : Array Capability) (type : TypeSpec) : Array Capability :=
+  match type with
+  | .scalar name width =>
+      let capabilities :=
+        if name == "stretch" then
+          pushCapability capabilities .timing
+        else capabilities
+      foldOption width expressionCapabilities capabilities
+  | .array element dimensions =>
+      dimensions.foldl expressionCapabilities (typeCapabilities capabilities element)
+  | .arrayRef _ element dimensions dimensionCount =>
+      let capabilities := typeCapabilities capabilities element
+      let capabilities := dimensions.foldl expressionCapabilities capabilities
+      foldOption dimensionCount expressionCapabilities capabilities
+
+private def directStatementCapabilities
+    (capabilities : Array Capability) (statement : Statement) : Array Capability :=
+  match statement with
+  | .qubit _ size | .bit _ size | .qreg _ size | .creg _ size =>
+      foldOption size expressionCapabilities capabilities
+  | .gateCall _ _ parameters designator operands =>
+      let capabilities := parameters.foldl expressionCapabilities capabilities
+      let capabilities := foldOption designator expressionCapabilities capabilities
+      operands.foldl operandCapabilities capabilities
+  | .measure source target =>
+      let capabilities := operandCapabilities capabilities source
+      foldOption target operandCapabilities capabilities
+  | .reset operand => operandCapabilities capabilities operand
+  | .barrier operands | .nopStatement operands =>
+      operands.foldl operandCapabilities capabilities
+  | .classicalDeclaration type _ initializer =>
+      foldOption initializer expressionCapabilities (typeCapabilities capabilities type)
+  | .constDeclaration type _ value =>
+      expressionCapabilities (typeCapabilities capabilities type) value
+  | .ioDeclaration _ type _ => typeCapabilities capabilities type
+  | .aliasDeclaration _ value | .expression value =>
+      expressionCapabilities capabilities value
+  | .assignment target _ value =>
+      expressionCapabilities (expressionCapabilities capabilities target) value
+  | .ifStatement condition _ _ | .whileStatement condition _ =>
+      expressionCapabilities capabilities condition
+  | .switchStatement value cases _ =>
+      cases.foldl (fun capabilities entry =>
+        entry.1.foldl expressionCapabilities capabilities)
+        (expressionCapabilities capabilities value)
+  | .forStatement type _ iterable _ =>
+      expressionCapabilities (typeCapabilities capabilities type) iterable
+  | .returnStatement value => foldOption value expressionCapabilities capabilities
+  | .defStatement _ arguments returnType _ =>
+      let capabilities := arguments.foldl
+        (fun capabilities argument => typeCapabilities capabilities argument.type)
+        capabilities
+      foldOption returnType typeCapabilities capabilities
+  | .externStatement _ arguments returnType =>
+      let capabilities := arguments.foldl typeCapabilities capabilities
+      foldOption returnType typeCapabilities capabilities
+  | .boxStatement designator _ =>
+      foldOption designator expressionCapabilities capabilities
+  | .delayStatement designator operands =>
+      operands.foldl operandCapabilities (expressionCapabilities capabilities designator)
+  | .annotated _ statement => directStatementCapabilities capabilities statement
   | _ => capabilities
 
 private partial def collectCapabilities (statements : Array Statement)
     (initial : Array Capability := #[]) : Array Capability := Id.run do
   let mut capabilities := initial
   for statement in statements do
+    capabilities := directStatementCapabilities capabilities statement
     match statement with
     | .externStatement .. =>
         capabilities := pushCapability capabilities .externalFunction
@@ -260,7 +363,7 @@ def check (program : Program) : Except (Array Diagnostic) CheckedProgram := do
         else
           match evalExpression environment expression with
           | .ok value => environment := (name, value) :: environment
-          | .error diagnostic => diagnostics := diagnostics.push diagnostic
+          | .error _ => pure ()
     | _ => pure ()
   diagnostics := diagnostics ++ controlFlowDiagnostics 0 false program.statements
   if diagnostics.isEmpty then

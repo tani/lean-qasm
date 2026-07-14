@@ -92,12 +92,80 @@ private partial def consumeCount (count : Nat) (cursor : LexCursor) : LexCursor 
 private def isIdentifierStart (char : Char) : Bool :=
   char == '_' || char.isAlpha || char.toNat ≥ 0x80
 private def isIdentifierRest (char : Char) : Bool := isIdentifierStart char || char.isDigit
-private def isNumberRest (char : Char) : Bool :=
-  char.isAlphanum || char == '_' || char == '.' || char == 'µ'
+private def isDigitForBase (base : Nat) (char : Char) : Bool :=
+  if base == 2 then char == '0' || char == '1'
+  else if base == 8 then '0' ≤ char && char ≤ '7'
+  else if base == 10 then char.isDigit
+  else
+    char.isDigit || ('a' ≤ char && char ≤ 'f') || ('A' ≤ char && char ≤ 'F')
+
+private def takeDigitGroup (base : Nat) (start : SourcePos) (cursor : LexCursor) :
+    Except ParseError (String × LexCursor) := do
+  let (raw, next) := takeWhile (fun char => isDigitForBase base char || char == '_') cursor
+  if raw.isEmpty then throw ⟨start, "expected a digit"⟩
+  let chars := raw.toList
+  if chars.head? == some '_' || chars.getLast? == some '_' then
+    throw ⟨start, "numeric separators must occur between digits"⟩
+  let rec validSeparators : List Char → Bool
+    | [] | [_] => true
+    | first :: second :: rest =>
+        !(first == '_' && second == '_') && validSeparators (second :: rest)
+  unless validSeparators chars do
+    throw ⟨start, "numeric separators must occur between digits"⟩
+  pure (raw, next)
+
+private def takeNumber (start : SourcePos) (cursor : LexCursor) :
+    Except ParseError (String × LexCursor) := do
+  if startsWithChars cursor.rest ['0', 'b'] || startsWithChars cursor.rest ['0', 'B'] then
+    let prefixText := String.ofList (cursor.rest.take 2)
+    let (digits, next) ← takeDigitGroup 2 start (consumeCount 2 cursor)
+    pure (prefixText ++ digits, next)
+  else if startsWithChars cursor.rest ['0', 'o'] then
+    let prefixText := String.ofList (cursor.rest.take 2)
+    let (digits, next) ← takeDigitGroup 8 start (consumeCount 2 cursor)
+    pure (prefixText ++ digits, next)
+  else if startsWithChars cursor.rest ['0', 'x'] || startsWithChars cursor.rest ['0', 'X'] then
+    let prefixText := String.ofList (cursor.rest.take 2)
+    let (digits, next) ← takeDigitGroup 16 start (consumeCount 2 cursor)
+    pure (prefixText ++ digits, next)
+  else
+    let leadingDot := cursor.rest.head? == some '.'
+    let mut raw := ""
+    let mut current := cursor
+    if leadingDot then
+      raw := "."
+      current := consumeCount 1 current
+      let (fraction, next) ← takeDigitGroup 10 start current
+      raw := raw ++ fraction
+      current := next
+    else
+      let (integer, next) ← takeDigitGroup 10 start current
+      raw := integer
+      current := next
+      if current.rest.head? == some '.' then
+        raw := raw ++ "."
+        current := consumeCount 1 current
+        let (fraction, next) := takeWhile (fun char => char.isDigit || char == '_') current
+        if !fraction.isEmpty then
+          let _ ← takeDigitGroup 10 start current
+          raw := raw ++ fraction
+          current := next
+    if current.rest.head? == some 'e' || current.rest.head? == some 'E' then
+      let exponentMarker := current.rest.head!.toString
+      current := consumeCount 1 current
+      let sign := match current.rest.head? with
+        | some '+' => "+"
+        | some '-' => "-"
+        | _ => ""
+      if !sign.isEmpty then current := consumeCount 1 current
+      let (exponent, next) ← takeDigitGroup 10 start current
+      raw := raw ++ exponentMarker ++ sign ++ exponent
+      current := next
+    pure (raw, current)
 
 private def symbols : List String := [
   "**=", "<<=", ">>=", "->", "++", "**", "||", "&&", "==", "!=",
-  ">=", "<=", "+=", "-=", "*=", "/=", "&=", "|=", "^=", "%=",
+  ">=", "<=", "+=", "-=", "*=", "/=", "&=", "|=", "~=", "^=", "%=",
   "<<", ">>", "[", "]", "{", "}", "(", ")", ":", ";", ".", ",",
   "=", "#", ">", "<", "+", "-", "*", "/", "%", "|", "&", "^", "@", "~", "!"
 ]
@@ -150,7 +218,8 @@ private partial def lexTokens (cursor : LexCursor) (tokens : Array Token := #[])
         lexTokens next tokens
       else if char == '"' || char == '\'' then
         let (value, next) ← lexString char start (consumeCount 1 cursor)
-        lexTokens next (tokens.push ⟨.stringLiteral value, ⟨start, next.position⟩⟩)
+        if value.isEmpty then throw ⟨start, "OpenQASM string literals must be non-empty"⟩
+        else lexTokens next (tokens.push ⟨.stringLiteral value, ⟨start, next.position⟩⟩)
       else if char == '$' then
         let (digits, next) := takeWhile Char.isDigit (consumeCount 1 cursor)
         if digits.isEmpty then throw ⟨start, "hardware qubit requires a decimal index"⟩
@@ -158,8 +227,10 @@ private partial def lexTokens (cursor : LexCursor) (tokens : Array Token := #[])
       else if isIdentifierStart char then
         let (identifier, next) := takeWhile isIdentifierRest cursor
         lexTokens next (tokens.push ⟨.identifier identifier, ⟨start, next.position⟩⟩)
-      else if char.isDigit then
-        let (raw, next) := takeWhile isNumberRest cursor
+      else if char.isDigit || (char == '.' && match cursor.rest.drop 1 with
+          | next :: _ => next.isDigit
+          | [] => false) then
+        let (raw, next) ← takeNumber start cursor
         lexTokens next (tokens.push ⟨.number raw, ⟨start, next.position⟩⟩)
       else match matchingSymbol? cursor with
         | some symbol =>
@@ -214,6 +285,8 @@ inductive Expression where
   | binary (operator : String) (left right : Expression)
   | call (name : String) (arguments : Array Expression)
   | cast (typeName : String) (width : Option Expression) (value : Expression)
+  | arrayCast (elementName : String) (elementWidth : Option Expression)
+      (dimensions : Array Expression) (value : Expression)
   | index (value : Expression) (indices : Array Expression)
   | range (start step stop : Option Expression)
   | set (values : Array Expression)
@@ -398,7 +471,7 @@ private def binaryPrecedence : String → Option Nat
   | "==" | "!=" => some 6
   | ">" | "<" | ">=" | "<=" => some 7
   | ">>" | "<<" => some 8
-  | "+" | "-" | "++" => some 9
+  | "+" | "-" => some 9
   | "*" | "/" | "%" => some 10
   | "**" => some 11
   | _ => none
@@ -420,9 +493,17 @@ private partial def collectBalancedText (depth : Nat := 1)
 
 private def classifyNumber (raw : String) : Literal :=
   if raw.endsWith "im" then .imaginary raw
-  else if ["dt", "ns", "us", "µs", "ms", "s"].any (fun unit => raw.endsWith unit) then .timing raw
+  else if ["dt", "ns", "us", "µs", "ms", "s"].any
+      (fun unit => raw.endsWith unit) then .timing raw
   else if raw.contains '.' || raw.contains 'e' || raw.contains 'E' then .float raw
   else .integer raw
+
+private def validBitstring (value : String) : Bool :=
+  let chars := value.toList
+  !chars.isEmpty &&
+    chars.all (fun char => char == '0' || char == '1' || char == '_') &&
+    chars.head? != some '_' && chars.getLast? != some '_' &&
+    !(chars.zip (chars.drop 1)).any (fun pair => pair.1 == '_' && pair.2 == '_')
 
 mutual
   private partial def parseExpression (minimumPrecedence : Nat := 0) :
@@ -447,7 +528,7 @@ mutual
     | some ⟨.symbol operator, _⟩ =>
         if operator == "~" || operator == "!" || operator == "-" then
           let _ ← consume
-          pure (.unary operator (← parseUnary))
+          pure (.unary operator (← parseExpression 11))
         else parsePostfix (← parsePrimary)
     | _ => parsePostfix (← parsePrimary)
 
@@ -465,7 +546,9 @@ mutual
               pure (.literal (classifyNumber (raw ++ suffix)))
             else pure (.literal (classifyNumber raw))
         | _ => pure (.literal (classifyNumber raw))
-    | .stringLiteral value => pure (.literal (.bitstring value))
+    | .stringLiteral value =>
+        if validBitstring value then pure (.literal (.bitstring value))
+        else failAtCurrent "only bitstring literals are valid expressions"
     | .hardwareQubit index => pure (.hardwareQubit index)
     | .identifier "true" => pure (.literal (.boolean true))
     | .identifier "false" => pure (.literal (.boolean false))
@@ -476,13 +559,63 @@ mutual
         expect ")"
         pure (.durationOf body)
     | .identifier name =>
-        let saved ← get
-        let width ←
-          if isScalarTypeName name && (← accept "[") then
+        if name == "array" then
+          expect "["
+          let elementName ← parseIdentifier
+          unless isScalarTypeName elementName do
+            failAtCurrent "array cast requires a scalar element type"
+          let elementWidth ← if elementName == "complex" then
+            if ← accept "[" then
+              let component ← parseIdentifier
+              unless component == "float" do
+                failAtCurrent "OpenQASM 3.0 complex components must have float type"
+              let width ← if ← accept "[" then
+                let width ← parseExpression
+                expect "]"
+                pure (some width)
+              else pure none
+              expect "]"
+              pure width
+            else pure none
+          else if ← accept "[" then
             let width ← parseExpression
             expect "]"
             pure (some width)
           else pure none
+          expect ","
+          let firstDimension ← parseExpression
+          let rec dimensions (values : Array Expression) : GrammarParser (Array Expression) := do
+            if ← accept "]" then pure values
+            else
+              expect ","
+              if ← accept "]" then pure values
+              else dimensions (values.push (← parseExpression))
+          let dimensions ← dimensions #[firstDimension]
+          expect "("
+          let value ← parseExpression
+          expect ")"
+          return .arrayCast elementName elementWidth dimensions value
+        let saved ← get
+        let width ← if name == "complex" then
+          if ← accept "[" then
+            let component ← parseIdentifier
+            unless component == "float" do
+              failAtCurrent "OpenQASM 3.0 complex components must have float type"
+            let width ← if ← accept "[" then
+              let width ← parseExpression
+              expect "]"
+              pure (some width)
+            else pure none
+            expect "]"
+            pure width
+          else pure none
+        else if isScalarTypeName name then
+          if ← accept "[" then
+            let width ← parseExpression
+            expect "]"
+            pure (some width)
+          else pure none
+        else pure none
         if isScalarTypeName name && (← accept "(") then
           let value ← parseExpression
           expect ")"
@@ -496,7 +629,6 @@ mutual
         let value ← parseExpression
         expect ")"
         pure value
-    | .symbol "{" => pure (.array (← parseExpressionList "}"))
     | _ => failAtCurrent "expected expression"
 
   private partial def parsePostfix (value : Expression) : GrammarParser Expression := do
@@ -515,9 +647,7 @@ mutual
       GrammarParser Expression := do
     let middle ← if ← indexExpressionEnds then pure none else some <$> parseExpression
     if ← accept ":" then
-      let stop ← if ← indexExpressionEnds then
-        failAtCurrent "the third range expression may not be omitted"
-      else some <$> parseExpression
+      let stop ← if ← indexExpressionEnds then pure none else some <$> parseExpression
       pure (.range start middle stop)
     else pure (.range start none middle)
 
@@ -530,7 +660,13 @@ mutual
 
   private partial def parseIndexList (values : Array Expression := #[]) :
       GrammarParser (Array Expression) := do
-    if ← accept "]" then pure values
+    if values.isEmpty && (← accept "{") then
+      let set ← parseNonemptyExpressionList "}"
+      expect "]"
+      pure #[.set set]
+    else if ← accept "]" then
+      if values.isEmpty then failAtCurrent "index lists may not be empty"
+      else pure values
     else
       let values := values.push (← parseIndexEntity)
       if ← accept "," then parseIndexList values
@@ -547,6 +683,16 @@ mutual
       else
         expect terminator
         pure values
+
+  private partial def parseNonemptyExpressionList (terminator : String) :
+      GrammarParser (Array Expression) := do
+    if ← accept terminator then
+      failAtCurrent "expected at least one expression"
+    let first ← parseExpression
+    if ← accept "," then parseExpressionList terminator #[first]
+    else
+      expect terminator
+      pure #[first]
 end
 
 private def parseSize? : GrammarParser (Option Expression) := do
@@ -575,11 +721,27 @@ private def parseOperand : GrammarParser Operand := do
 private partial def parseOperandList (operands : Array Operand := #[]) :
     GrammarParser (Array Operand) := do
   let operands := operands.push (← parseOperand)
-  if ← accept "," then parseOperandList operands else pure operands
+  if ← accept "," then
+    match ← current? with
+    | some ⟨.symbol ";", _⟩ => pure operands
+    | _ => parseOperandList operands
+  else pure operands
 
+
+private partial def parseArrayLiteral : GrammarParser Expression := do
+  if ← accept "}" then failAtCurrent "array literals must contain at least one element"
+  let first ← if ← accept "{" then parseArrayLiteral else parseExpression
+  let rec loop (values : Array Expression) : GrammarParser Expression := do
+    if ← accept "}" then return .array values
+    expect ","
+    if ← accept "}" then return .array values
+    let value ← if ← accept "{" then parseArrayLiteral else parseExpression
+    loop (values.push value)
+  loop #[first]
 
 private def parseDeclarationExpression : GrammarParser Expression := do
   if ← accept "measure" then pure (.measure (← parseOperand))
+  else if ← accept "{" then parseArrayLiteral
   else parseExpression
 
 private partial def parseType : GrammarParser TypeSpec := do
@@ -605,6 +767,19 @@ private partial def parseType : GrammarParser TypeSpec := do
       pure (.arrayRef mutable element #[] (some count))
     else
       pure (.arrayRef mutable element (← parseExpressionList "]") none)
+  else if name == "complex" then
+    if ← accept "[" then
+      let component ← parseIdentifier
+      unless component == "float" do
+        failAtCurrent "OpenQASM 3.0 complex components must have float type"
+      let width ← if ← accept "[" then
+        let value ← parseExpression
+        expect "]"
+        pure (some value)
+      else pure none
+      expect "]"
+      pure (.scalar "complex" width)
+    else pure (.scalar "complex" none)
   else if isScalarTypeName name then
     let width ← if ← accept "[" then
       let value ← parseExpression
@@ -615,7 +790,7 @@ private partial def parseType : GrammarParser TypeSpec := do
   else failAtCurrent s!"unknown OpenQASM type '{name}'"
 
 private def assignmentOperators : List String :=
-  ["=", "+=", "-=", "*=", "/=", "&=", "|=", "^=", "<<=", ">>=", "%=", "**="]
+  ["=", "+=", "-=", "*=", "/=", "&=", "|=", "~=", "^=", "<<=", ">>=", "%=", "**="]
 
 private def currentAssignmentOperator? : GrammarParser (Option String) := do
   match ← current? with
@@ -912,7 +1087,7 @@ where
       let _ ← consume
       let name ← parseIdentifier
       expect "="
-      let value ← parseExpression
+      let value ← parseAliasExpression
       expect ";"
       pure (.aliasDeclaration name value)
     else if isScalarTypeName direction || direction == "array" then
@@ -922,6 +1097,12 @@ where
       expect ";"
       pure (.classicalDeclaration type name initializer)
     else parseIdentifierLedStatement
+
+  parseAliasExpression : GrammarParser Expression := do
+    let mut value ← parseExpression
+    while ← accept "++" do
+      value := .binary "++" value (← parseExpression)
+    pure value
 
   parseCaseValues (values : Array Expression := #[]) :
       GrammarParser (Array Expression) := do
@@ -1004,7 +1185,9 @@ where
         pure names
 
   parseForIterable : GrammarParser Expression := do
-    if ← accept "[" then
+    if ← accept "{" then
+      pure (.set (← parseNonemptyExpressionList "}"))
+    else if ← accept "[" then
       let start ← if ← accept ":" then pure none else
         let start ← parseExpression
         expect ":"
@@ -1108,8 +1291,16 @@ partial def Expression.toQasm : Expression → String
   | .call name arguments =>
       s!"{name}({String.intercalate ", " (arguments.toList.map Expression.toQasm)})"
   | .cast name width value =>
-      let width := width.map (fun width => s!"[{width.toQasm}]") |>.getD ""
+      let width := if name == "complex" then
+        width.map (fun width => s!"[float[{width.toQasm}]]") |>.getD ""
+      else width.map (fun width => s!"[{width.toQasm}]") |>.getD ""
       s!"{name}{width}({value.toQasm})"
+  | .arrayCast elementName elementWidth dimensions value =>
+      let elementWidth := if elementName == "complex" then
+        elementWidth.map (fun width => s!"[float[{width.toQasm}]]") |>.getD ""
+      else elementWidth.map (fun width => s!"[{width.toQasm}]") |>.getD ""
+      let dimensions := String.intercalate ", " (dimensions.toList.map Expression.toQasm)
+      s!"array[{elementName}{elementWidth}, {dimensions}]({value.toQasm})"
   | .index value indices =>
       s!"{value.toQasm}[{String.intercalate ", " (indices.toList.map Expression.toQasm)}]"
   | .range start step stop =>
@@ -1136,6 +1327,7 @@ private def joinOperands (operands : Array Operand) : String :=
 
 partial def TypeSpec.toQasm : TypeSpec → String
   | .scalar name none => name
+  | .scalar "complex" (some width) => s!"complex[float[{width.toQasm}]]"
   | .scalar name (some width) => s!"{name}[{width.toQasm}]"
   | .array element dimensions =>
       s!"array[{element.toQasm}, {String.intercalate ", " (dimensions.toList.map Expression.toQasm)}]"
