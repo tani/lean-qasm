@@ -278,3 +278,9 @@ def check (program : SourceProgram) : Except (Array Diagnostic) CheckedSourcePro
 
 end QASM
 ```
+<!--
+vim: set filetype=markdown :
+Local Variables:
+mode: markdown
+End:
+-->

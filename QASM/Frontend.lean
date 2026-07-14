@@ -1270,3 +1270,9 @@ def parseFile (path : System.FilePath) : IO (Except FileParseError SourceProgram
   Frontend.parseFile path
 end QASM
 ```
+<!--
+vim: set filetype=markdown :
+Local Variables:
+mode: markdown
+End:
+-->
