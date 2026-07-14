@@ -1,6 +1,6 @@
 # LeanQASM
 
-`LeanQASM` is a minimal OpenQASM 2.0 embedded DSL and state-vector interpreter
+`LeanQASM` is a minimal OpenQASM 3.0 embedded DSL and state-vector interpreter
 written in Lean 4. Its checked tutorial uses
 [LiterateLean](https://github.com/tani/literate-lean), so documentation examples
 are compiled together with the library.
@@ -23,10 +23,10 @@ open Qasm
 
 def bell : Qasm.Program :=
   qasm {
-    OPENQASM 2.0;
-    include "qelib1.inc";
-    qreg q[2];
-    creg c[2];
+    OPENQASM 3.0;
+    include "stdgates.inc";
+    qubit[2] q;
+    bit[2] c;
     h q[0];
     cx q[0], q[1];
     measure q -> c;
@@ -35,9 +35,15 @@ def bell : Qasm.Program :=
 #eval execute bell
 ```
 
-Because the core module is written with LiterateLean, commands following
-`import QASM` belong in a `lean` fenced block as shown above. Markdown prose
-may be placed between fenced blocks in the same `.lean` source file.
+The core implementation uses LiterateLean for its own documentation. Downstream
+programs and examples remain ordinary Lean after `import QASM`; literate fences are
+not part of the library interface.
+
+The DSL is a grammar-safe OpenQASM 3.0 subset. It requires exactly one leading
+version declaration, uses modern `qubit` and `bit` declarations, restricts
+names to non-keyword ASCII identifiers, and validates include filenames.
+`Program.toQasm` returns `Except String String` so invalid AST values are never
+serialized as OpenQASM.
 
 ## Documentation
 

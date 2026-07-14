@@ -1,5 +1,5 @@
-    import LiterateLean
-    import QASM.Basic
+import LiterateLean
+import QASM.Basic
 
 # QASM literate guide
 
@@ -18,11 +18,11 @@ namespace Qasm.Guide
 
 def bell : Qasm.Program :=
   qasm {
-    OPENQASM 2.0;
-    include "qelib1.inc";
+    OPENQASM 3.0;
+    include "stdgates.inc";
 
-    qreg q[2];
-    creg c[2];
+    qubit[2] q;
+    bit[2] c;
 
     h q[0];
     cx q[0], q[1];
@@ -36,10 +36,10 @@ zero based index, so both registers must have the same size.
 
 ## Validation and serialization
 
-Validation checks the required version declaration, unique positive register
-declarations, register kinds, and index bounds. It reports the first problem
-as an `Except String Unit` value. The same syntax tree can be serialized back
-to normalized OpenQASM text.
+Validation checks the required version declaration, OpenQASM identifiers,
+include filenames, unique positive register declarations, register kinds, and
+index bounds. It reports the first problem as an `Except String Unit` value.
+Serialization returns `Except String String` and only emits validated programs.
 
 ```lean
 #eval bell.validate

@@ -1,18 +1,18 @@
-    import Lean
-    import LiterateLean
+import Lean
+import LiterateLean
 
 # QASM basic embedded language and interpreter
 
-This module implements a small executable subset of OpenQASM 2.0. It combines
+This module implements a small executable subset of OpenQASM 3.0. It combines
 an abstract syntax tree, a checked embedded syntax, static validation, source
 serialization, and a state vector interpreter.
 
 The supported statements are:
 
-- `OPENQASM 2.0;`
+- `OPENQASM 3.0;`
 - `include "...";`
-- `qreg q[n];`
-- `creg c[n];`
+- `qubit[n] q;`
+- `bit[n] c;`
 - `x q[i];`
 - `h q[i];`
 - `z q[i];`
@@ -56,7 +56,7 @@ element. If `index` is `none`, the reference denotes the whole register.
 
 - `version` records an `OPENQASM major.minor;` declaration.
 - `includeFile` records an include directive without loading the file.
-- `qreg` and `creg` declare quantum and classical registers.
+- `qubit` and `bit` declare quantum and classical registers.
 - `gate1` and `gate2` apply named gates to one or two references.
 - `measure` copies a measured quantum result into classical storage.
 
@@ -76,11 +76,11 @@ inductive Stmt where
   | includeFile :
       String →
       Stmt
-  | qreg :
+  | qubit :
       String →
       Nat →
       Stmt
-  | creg :
+  | bit :
       String →
       Nat →
       Stmt
@@ -109,7 +109,8 @@ place one statement on each line.
 
 `Ref.toQasm` renders either a bare register name or an indexed reference.
 `Stmt.toQasm` renders one statement including its terminating semicolon.
-`Program.toQasm` joins the rendered statements with newline characters.
+`Program.toQasm` validates before joining the rendered statements with newline
+characters. Invalid AST values therefore cannot be serialized as OpenQASM.
 
 ```lean
 def Ref.toQasm : Ref → String
@@ -125,11 +126,11 @@ def Stmt.toQasm : Stmt → String
   | .includeFile filename =>
       s!"include \"{filename}\";"
 
-  | .qreg name size =>
-      s!"qreg {name}[{size}];"
+  | .qubit name size =>
+      s!"qubit[{size}] {name};"
 
-  | .creg name size =>
-      s!"creg {name}[{size}];"
+  | .bit name size =>
+      s!"bit[{size}] {name};"
 
   | .gate1 gate arg =>
       s!"{gate} {arg.toQasm};"
@@ -140,7 +141,7 @@ def Stmt.toQasm : Stmt → String
   | .measure src dst =>
       s!"measure {src.toQasm} -> {dst.toQasm};"
 
-def Program.toQasm (program : Program) : String :=
+private def Program.toQasmUnchecked (program : Program) : String :=
   String.intercalate "\n" (program.map Stmt.toQasm)
 ```
 
@@ -158,6 +159,10 @@ associates source names with their declarations.
 the OpenQASM version. It returns the first human readable error. Gate support
 is checked later by the interpreter rather than by static validation.
 
+Identifiers intentionally use the ASCII subset `[A-Za-z_][A-Za-z0-9_]*` of
+the ANTLR `Identifier` rule and exclude every reserved lexer keyword. Include
+filenames use the double quoted `StringLiteral` subset emitted by the printer.
+
 ```lean
 inductive RegisterKind where
   | quantum
@@ -170,6 +175,50 @@ structure RegisterInfo where
   deriving Repr, Inhabited, BEq
 
 abbrev RegisterEnv := List (String × RegisterInfo)
+
+private def openQasmKeywords : List String := [
+  "OPENQASM", "include", "defcalgrammar", "def", "cal", "defcal", "gate",
+  "extern", "box", "let", "break", "continue", "if", "else", "end",
+  "return", "for", "while", "in", "switch", "case", "default", "nop",
+  "pragma", "input", "output", "const", "readonly", "mutable", "qreg",
+  "qubit", "creg", "bool", "bit", "int", "uint", "float", "angle",
+  "complex", "array", "void", "duration", "stretch", "gphase", "inv",
+  "pow", "ctrl", "negctrl", "durationof", "delay", "reset", "measure",
+  "barrier", "true", "false", "im"
+]
+
+private def isAsciiLetter (char : Char) : Bool :=
+  ('A' ≤ char && char ≤ 'Z') || ('a' ≤ char && char ≤ 'z')
+
+private def isAsciiDigit (char : Char) : Bool :=
+  '0' ≤ char && char ≤ '9'
+
+private def isIdentifierStart (char : Char) : Bool :=
+  isAsciiLetter char || char == '_'
+
+private def isIdentifierRest (char : Char) : Bool :=
+  isIdentifierStart char || isAsciiDigit char
+
+def isValidIdentifier (name : String) : Bool :=
+  match name.toList with
+  | [] =>
+      false
+  | first :: rest =>
+      isIdentifierStart first &&
+      rest.all isIdentifierRest &&
+      !(openQasmKeywords.contains name)
+
+private def validateIdentifier (name : String) : Except String Unit := do
+  unless isValidIdentifier name do
+    throw s!"invalid OpenQASM identifier: {name}"
+
+def isValidIncludeFilename (filename : String) : Bool :=
+  !filename.isEmpty && filename.toList.all fun char =>
+    char != '"' && char != '\r' && char != '\n' && char != '\t'
+
+private def validateIncludeFilename (filename : String) : Except String Unit := do
+  unless isValidIncludeFilename filename do
+    throw s!"invalid OpenQASM include filename: {filename}"
 
 private def lookupRegister?
     (env : RegisterEnv)
@@ -192,6 +241,8 @@ private def validateRef
     (ref : Ref)
     (expectedKind : Option RegisterKind := none) :
     Except String Unit := do
+  validateIdentifier ref.name
+
   let info ←
     match lookupRegister? env ref.name with
     | none =>
@@ -224,16 +275,15 @@ private def validateStmt
     (stmt : Stmt) :
     Except String RegisterEnv := do
   match stmt with
-  | .version major minor =>
-      if major == 2 && minor == 0 then
-        pure env
-      else
-        throw s!"unsupported OpenQASM version: {major}.{minor}"
+  | .version _ _ =>
+      throw "duplicate OpenQASM version declaration"
 
-  | .includeFile _ =>
+  | .includeFile filename =>
+      validateIncludeFilename filename
       pure env
 
-  | .qreg name size =>
+  | .qubit name size =>
+      validateIdentifier name
       if size == 0 then
         throw s!"quantum register {name} must have positive size"
       else if (lookupRegister? env name).isSome then
@@ -241,7 +291,8 @@ private def validateStmt
       else
         pure ((name, ⟨.quantum, size⟩) :: env)
 
-  | .creg name size =>
+  | .bit name size =>
+      validateIdentifier name
       if size == 0 then
         throw s!"classical register {name} must have positive size"
       else if (lookupRegister? env name).isSome then
@@ -249,11 +300,13 @@ private def validateStmt
       else
         pure ((name, ⟨.classical, size⟩) :: env)
 
-  | .gate1 _ arg =>
+  | .gate1 gate arg =>
+      validateIdentifier gate
       validateRef env arg (some .quantum)
       pure env
 
-  | .gate2 _ arg₁ arg₂ =>
+  | .gate2 gate arg₁ arg₂ =>
+      validateIdentifier gate
       validateRef env arg₁ (some .quantum)
       validateRef env arg₂ (some .quantum)
       pure env
@@ -280,20 +333,25 @@ def Program.validate (program : Program) : Except String Unit := do
   | [] =>
       throw "empty OpenQASM program"
 
-  | .version 2 0 :: rest =>
+  | .version 3 0 :: rest =>
       validateStatements [] rest
 
   | .version major minor :: _ =>
       throw s!"unsupported OpenQASM version: {major}.{minor}"
 
   | _ =>
-      throw "the first statement must be `OPENQASM 2.0;`"
+      throw "the first statement must be `OPENQASM 3.0;`"
+
+def Program.toQasm (program : Program) : Except String String := do
+  program.validate
+  pure program.toQasmUnchecked
 ```
 
 ## Embedded OpenQASM syntax
 
 The following syntax categories describe register references and statements.
-The `qasm` term syntax collects them into a `Qasm.Program`.
+The `qasm` term syntax requires the unique version declaration first and then
+collects the remaining statements into a `Qasm.Program`.
 
 ```lean
 
@@ -303,18 +361,16 @@ declare_syntax_cat qasmStmt
 syntax ident : qasmRef
 syntax ident "[" num "]" : qasmRef
 
-syntax "OPENQASM" scientific ";" : qasmStmt
-
 syntax "include" str ";" : qasmStmt
-syntax "qreg" ident "[" num "]" ";" : qasmStmt
-syntax "creg" ident "[" num "]" ";" : qasmStmt
+syntax "qubit" "[" num "]" ident ";" : qasmStmt
+syntax "bit" "[" num "]" ident ";" : qasmStmt
 syntax "measure" qasmRef "->" qasmRef ";" : qasmStmt
 
 syntax ident qasmRef ";" : qasmStmt
 syntax ident qasmRef "," qasmRef ";" : qasmStmt
 
 syntax (name := qasmProgram)
-  "qasm" "{" qasmStmt* "}" : term
+  "qasm" "{" "OPENQASM" scientific ";" qasmStmt* "}" : term
 
 open Lean
 open Lean Macro
@@ -330,12 +386,35 @@ OpenQASM version errors are reported at expansion time when possible.
 
 ```lean
 
+private def ensureIdentifierAt (stx : Syntax) (name : String) : MacroM Unit := do
+  unless isValidIdentifier name do
+    Macro.throwErrorAt stx s!"invalid OpenQASM identifier: {name}"
+
+private def ensureIncludeFilenameAt
+    (stx : Syntax)
+    (filename : String) : MacroM Unit := do
+  unless isValidIncludeFilename filename do
+    Macro.throwErrorAt stx s!"invalid OpenQASM include filename: {filename}"
+
+private def ensureVersionAt (version : TSyntax `scientific) : MacroM Unit := do
+  let (mantissa, decimalExponent, exponent) :=
+    version.getScientific
+
+  unless
+      mantissa == 30 &&
+      decimalExponent &&
+      exponent == 1 do
+    Macro.throwErrorAt
+      version
+      "only `OPENQASM 3.0;` is supported"
+
 private def expandRef :
     Syntax →
     MacroM LeanTermSyntax
   | `(qasmRef| $name:ident[$index:num]) => do
       let nameString := name.getId.toString
       let indexValue := index.getNat
+      ensureIdentifierAt name nameString
 
       `(Qasm.Ref.mk
           $(quote nameString)
@@ -343,6 +422,7 @@ private def expandRef :
 
   | `(qasmRef| $name:ident) => do
       let nameString := name.getId.toString
+      ensureIdentifierAt name nameString
 
       `(Qasm.Ref.mk
           $(quote nameString)
@@ -356,39 +436,28 @@ private def expandRef :
 private def expandStmt :
     Syntax →
     MacroM LeanTermSyntax
-  | `(qasmStmt| OPENQASM $version:scientific;) => do
-      let (mantissa, decimalExponent, exponent) :=
-        version.getScientific
-
-      unless
-          mantissa == 20 &&
-          decimalExponent &&
-          exponent == 1 do
-        Macro.throwErrorAt
-          version
-          "only `OPENQASM 2.0;` is supported"
-
-      `(Qasm.Stmt.version 2 0)
-
   | `(qasmStmt| include $filename:str;) => do
       let filenameString := filename.getString
+      ensureIncludeFilenameAt filename filenameString
 
       `(Qasm.Stmt.includeFile
           $(quote filenameString))
 
-  | `(qasmStmt| qreg $name:ident[$size:num];) => do
+  | `(qasmStmt| qubit[$size:num] $name:ident;) => do
       let nameString := name.getId.toString
       let sizeValue := size.getNat
+      ensureIdentifierAt name nameString
 
-      `(Qasm.Stmt.qreg
+      `(Qasm.Stmt.qubit
           $(quote nameString)
           $(quote sizeValue))
 
-  | `(qasmStmt| creg $name:ident[$size:num];) => do
+  | `(qasmStmt| bit[$size:num] $name:ident;) => do
       let nameString := name.getId.toString
       let sizeValue := size.getNat
+      ensureIdentifierAt name nameString
 
-      `(Qasm.Stmt.creg
+      `(Qasm.Stmt.bit
           $(quote nameString)
           $(quote sizeValue))
 
@@ -403,6 +472,7 @@ private def expandStmt :
   | `(qasmStmt| $gate:ident $arg:qasmRef;) => do
       let gateName := gate.getId.toString
       let argTerm ← expandRef arg
+      ensureIdentifierAt gate gateName
 
       `(Qasm.Stmt.gate1
           $(quote gateName)
@@ -412,6 +482,7 @@ private def expandStmt :
       let gateName := gate.getId.toString
       let arg₁Term ← expandRef arg₁
       let arg₂Term ← expandRef arg₂
+      ensureIdentifierAt gate gateName
 
       `(Qasm.Stmt.gate2
           $(quote gateName)
@@ -424,16 +495,20 @@ private def expandStmt :
         "unsupported OpenQASM statement"
 
 macro_rules
-  | `(qasm { $stmts:qasmStmt* }) => do
+  | `(qasm { OPENQASM $version:scientific; $stmts:qasmStmt* }) => do
+      ensureVersionAt version
+
       let init : LeanTermSyntax ←
         `(([] : Qasm.Program))
 
-      stmts.foldrM
+      let statements ← stmts.foldrM
         (β := LeanTermSyntax)
         (init := init)
         fun stmt rest => do
           let stmtTerm ← expandStmt stmt.raw
           `($stmtTerm :: $rest)
+
+      `(Qasm.Stmt.version 3 0 :: $statements)
 ```
 
 ## Complex amplitudes
@@ -661,14 +736,14 @@ Qubits use little endian indexing, so the mask for qubit `n` is `2 ^ n`.
 
 ```lean
 
-private def qubitMask (qubit : Nat) : Nat :=
-  2 ^ qubit
+private def qubitMask (qubitIndex : Nat) : Nat :=
+  2 ^ qubitIndex
 
 private def bitAt
     (basisIndex : Nat)
-    (qubit : Nat) :
+    (qubitIndex : Nat) :
     Bool :=
-  ((basisIndex / qubitMask qubit) % 2) == 1
+  ((basisIndex / qubitMask qubitIndex) % 2) == 1
 ```
 
 ## Single qubit gates
@@ -680,10 +755,10 @@ The supported names are `id`, `x`, `h`, and `z`.
 
 private def applyXAt
     (machine : Machine)
-    (qubit : Nat) :
+    (qubitIndex : Nat) :
     Machine :=
   let mask :=
-    qubitMask qubit
+    qubitMask qubitIndex
 
   let newAmplitudes :=
     Id.run do
@@ -691,7 +766,7 @@ private def applyXAt
         machine.amplitudes
 
       for basisIndex in [0:result.size] do
-        if !(bitAt basisIndex qubit) then
+        if !(bitAt basisIndex qubitIndex) then
           let pairedIndex :=
             basisIndex + mask
 
@@ -716,10 +791,10 @@ private def applyXAt
 
 private def applyHAt
     (machine : Machine)
-    (qubit : Nat) :
+    (qubitIndex : Nat) :
     Machine :=
   let mask :=
-    qubitMask qubit
+    qubitMask qubitIndex
 
   let factor :=
     1.0 / Float.sqrt 2.0
@@ -730,7 +805,7 @@ private def applyHAt
         machine.amplitudes
 
       for basisIndex in [0:result.size] do
-        if !(bitAt basisIndex qubit) then
+        if !(bitAt basisIndex qubitIndex) then
           let pairedIndex :=
             basisIndex + mask
 
@@ -765,7 +840,7 @@ private def applyHAt
 
 private def applyZAt
     (machine : Machine)
-    (qubit : Nat) :
+    (qubitIndex : Nat) :
     Machine :=
   let newAmplitudes :=
     Id.run do
@@ -773,7 +848,7 @@ private def applyZAt
         machine.amplitudes
 
       for basisIndex in [0:result.size] do
-        if bitAt basisIndex qubit then
+        if bitAt basisIndex qubitIndex then
           result :=
             result.set!
               basisIndex
@@ -789,14 +864,14 @@ private def applyZAt
 private def applyGate1At
     (machine : Machine)
     (gate : String)
-    (qubit : Nat) :
+    (qubitIndex : Nat) :
     Except String Machine :=
   if gate == "x" then
-    pure (applyXAt machine qubit)
+    pure (applyXAt machine qubitIndex)
   else if gate == "h" then
-    pure (applyHAt machine qubit)
+    pure (applyHAt machine qubitIndex)
   else if gate == "z" then
-    pure (applyZAt machine qubit)
+    pure (applyZAt machine qubitIndex)
   else if gate == "id" then
     pure machine
   else
@@ -810,9 +885,9 @@ private def applyGate1Many
   | [] =>
       pure machine
 
-  | qubit :: rest => do
+  | qubitIndex :: rest => do
       let next ←
-        applyGate1At machine gate qubit
+        applyGate1At machine gate qubitIndex
 
       applyGate1Many next gate rest
 ```
@@ -900,14 +975,14 @@ selected subspace, and records the result in classical storage.
 
 private def probabilityZero
     (machine : Machine)
-    (qubit : Nat) :
+    (qubitIndex : Nat) :
     Float :=
   Id.run do
     let mut probability :=
       0.0
 
     for basisIndex in [0:machine.amplitudes.size] do
-      if !(bitAt basisIndex qubit) then
+      if !(bitAt basisIndex qubitIndex) then
         probability :=
           probability +
             CFloat.normSq machine.amplitudes[basisIndex]!
@@ -916,7 +991,7 @@ private def probabilityZero
 
 private def collapseAt
     (machine : Machine)
-    (qubit : Nat)
+    (qubitIndex : Nat)
     (outcome : Bool)
     (probabilityOfZero : Float) :
     Machine :=
@@ -937,7 +1012,7 @@ private def collapseAt
           CFloat.zero
 
       for basisIndex in [0:machine.amplitudes.size] do
-        if bitAt basisIndex qubit == outcome then
+        if bitAt basisIndex qubitIndex == outcome then
           result :=
             result.set!
               basisIndex
@@ -1009,12 +1084,12 @@ private def randomUnit : IO Float := do
 
 private def measureOne
     (machine : Machine)
-    (qubit : Nat)
+    (qubitIndex : Nat)
     (classicalRegister : String)
     (classicalIndex : Nat) :
     IO (Except String Machine) := do
   let p₀ :=
-    probabilityZero machine qubit
+    probabilityZero machine qubitIndex
 
   let randomValue ←
     randomUnit
@@ -1023,7 +1098,7 @@ private def measureOne
     !(randomValue < p₀)
 
   let collapsed :=
-    collapseAt machine qubit outcome p₀
+    collapseAt machine qubitIndex outcome p₀
 
   pure <|
     setClassicalBit
@@ -1039,11 +1114,11 @@ private def measurePairs
   | [] =>
       pure (.ok machine)
 
-  | (qubit, classicalRegister, classicalIndex) :: rest => do
+  | (qubitIndex, classicalRegister, classicalIndex) :: rest => do
       match ←
         measureOne
           machine
-          qubit
+          qubitIndex
           classicalRegister
           classicalIndex with
       | .error message =>
@@ -1071,10 +1146,10 @@ private def executeStmt
   | .includeFile _ =>
       pure (.ok machine)
 
-  | .qreg name size =>
+  | .qubit name size =>
       pure (.ok (declareQuantumRegister machine name size))
 
-  | .creg name size =>
+  | .bit name size =>
       pure (.ok (declareClassicalRegister machine name size))
 
   | .gate1 gate arg =>
