@@ -2,18 +2,19 @@ import Lake
 
 open Lake DSL
 
-package qasmv
+package LeanQASM
 
 require LiterateLean from git
   "https://github.com/tani/literate-lean.git" @ "main"
 
 @[default_target]
-lean_lib Qasmv
+lean_lib QASM where
+  roots := #[`QASM]
 
 @[default_target]
-lean_lib QasmvDocs where
-  roots := #[`Qasmv.Guide]
+lean_lib QASMDocs where
+  roots := #[`QASM.Guide]
 
 @[test_driver]
-lean_exe qasmv_tests where
+lean_exe lean_qasm_tests where
   root := `Tests.Main

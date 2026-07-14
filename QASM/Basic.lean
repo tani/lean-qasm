@@ -1,7 +1,7 @@
     import Lean
     import LiterateLean
 
-# Qasm embedded language and interpreter
+# QASM basic embedded language and interpreter
 
 This module implements a small executable subset of OpenQASM 2.0. It combines
 an abstract syntax tree, a checked embedded syntax, static validation, source

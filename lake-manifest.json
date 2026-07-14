@@ -11,6 +11,6 @@
    "inputRev": "main",
    "inherited": false,
    "configFile": "lakefile.toml"}],
- "name": "qasmv",
+ "name": "LeanQASM",
  "lakeDir": ".lake",
  "fixedToolchain": false}

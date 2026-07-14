@@ -1,7 +1,7 @@
-import Qasmv
+import QASM
 
 ```lean
-namespace QasmvTests
+namespace QASMTests
 
 open Qasm
 
@@ -119,8 +119,8 @@ def run : IO Unit := do
   testBellMeasurement
   testRuntimeError
 
-end QasmvTests
+end QASMTests
 
 def main : IO Unit :=
-  QasmvTests.run
+  QASMTests.run
 ```

@@ -1,7 +1,7 @@
     import LiterateLean
-    import Qasmv.Qasm
+    import QASM.Basic
 
-# qasmv literate guide
+# QASM literate guide
 
 This module is both documentation and checked Lean source. LiterateLean treats
 the surrounding Markdown as prose while elaborating every fenced Lean block.
@@ -9,7 +9,7 @@ The examples therefore stay synchronized with the library API.
 
 ## Constructing a program
 
-Importing `Qasmv.Qasm` provides the `Qasm` data model and the `qasm` term
+Importing `QASM.Basic` provides the `Qasm` data model and the `qasm` term
 syntax. A program is a list of statements, but the embedded syntax keeps the
 program close to ordinary OpenQASM source.
 

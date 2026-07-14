@@ -1,6 +1,6 @@
-# qasmv
+# LeanQASM
 
-`qasmv` is a minimal OpenQASM 2.0 embedded DSL and state-vector interpreter
+`LeanQASM` is a minimal OpenQASM 2.0 embedded DSL and state-vector interpreter
 written in Lean 4. Its checked tutorial uses
 [LiterateLean](https://github.com/tani/literate-lean), so documentation examples
 are compiled together with the library.
@@ -17,7 +17,7 @@ lake test
 Import the library and construct a program with the `qasm` syntax:
 
 ```lean
-import Qasmv
+import QASM
 
 open Qasm
 
@@ -36,17 +36,17 @@ def bell : Qasm.Program :=
 ```
 
 Because the core module is written with LiterateLean, commands following
-`import Qasmv` belong in a `lean` fenced block as shown above. Markdown prose
+`import QASM` belong in a `lean` fenced block as shown above. Markdown prose
 may be placed between fenced blocks in the same `.lean` source file.
 
 ## Documentation
 
 The source includes API documentation on public declarations and a literate,
-compiler-checked walkthrough in `Qasmv/Guide.lean`. Import it directly when
+compiler-checked walkthrough in `QASM/Guide.lean`. Import it directly when
 exploring the documented examples:
 
 ```lean
-import Qasmv.Guide
+import QASM.Guide
 
 #check Qasm.Guide.bell
 #check Qasm.Guide.runBell
