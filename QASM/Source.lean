@@ -1,4 +1,5 @@
     import LiterateLean
+    import Lean
 
     open scoped LiterateLean
 
@@ -8,8 +9,6 @@
 OpenQASM source string as `qasmRaw`, implemented as a low-level parser.
 
 ```lean
-import Lean
-
 namespace QASM
 
 open Lean Parser

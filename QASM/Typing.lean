@@ -12,10 +12,6 @@ This module collects OpenQASM type information and performs constant evaluation,
 declaration validation, and signature checking for subroutines and gates.
 
 ```lean
-import QASM.Runtime
-import QASM.Frontend
-import QASM.Semantics
-
 namespace QASM
 namespace Frontend
 

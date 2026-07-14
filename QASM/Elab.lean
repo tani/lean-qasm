@@ -15,13 +15,6 @@ The core of `elab_qasm`; it runs parsing, include expansion, type checking,
 and native Lean function generation in a single command.
 
 ```lean
-import QASM.Runtime
-import QASM.Source
-import QASM.Frontend
-import QASM.Semantics
-import QASM.Typing
-import Lean.Elab.Eval
-
 namespace QASM
 namespace Compiler
 
@@ -1062,30 +1055,29 @@ syntax (name := elabQasmSource)
 syntax (name := elabQasmFile)
   "elab_qasm" ident "from" str ("using" term)? : command
 
+```
+
+The command syntax is registered before its elaborators are defined so that the
+following quoted patterns can use it.
+
+```lean
+
 @[command_elab elabQasmSource]
-unsafe def elaborateQasmSource : CommandElab
-  | `(elab_qasm $name:ident ($qasm:term) using $options:term) => do
+meta unsafe def elaborateQasmSource : CommandElab
+  | `(command| elab_qasm $name:ident ($qasm:term) $[using $options?]?) => do
       let sourceValue ← evalSource qasm
-      let optionsValue ← evalOptions (some options)
+      let optionsValue ← evalOptions options?
       compileProgram name.getId.toString "<embedded>" sourceValue optionsValue
-  | `(elab_qasm $name:ident ($qasm:term)) => do
-      let sourceValue ← evalSource qasm
-      compileProgram name.getId.toString "<embedded>" sourceValue {}
   | _ => throwUnsupportedSyntax
 
 @[command_elab elabQasmFile]
-unsafe def elaborateQasmFile : CommandElab
-  | `(elab_qasm $name:ident from $path:str using $options:term) => do
+meta unsafe def elaborateQasmFile : CommandElab
+  | `(command| elab_qasm $name:ident from $path:str $[using $options?]?) => do
       let resolved ← resolveSourcePath path.getString
       let qasmText ← try IO.FS.readFile resolved catch error =>
         throwError m!"cannot read OpenQASM source '{resolved}': {error.toMessageData}"
-      let optionsValue ← evalOptions (some options)
+      let optionsValue ← evalOptions options?
       compileProgram name.getId.toString (toString resolved) qasmText optionsValue
-  | `(elab_qasm $name:ident from $path:str) => do
-      let resolved ← resolveSourcePath path.getString
-      let qasmText ← try IO.FS.readFile resolved catch error =>
-        throwError m!"cannot read OpenQASM source '{resolved}': {error.toMessageData}"
-      compileProgram name.getId.toString (toString resolved) qasmText {}
   | _ => throwUnsupportedSyntax
 
 end Compiler

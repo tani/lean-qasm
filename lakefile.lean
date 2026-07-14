@@ -11,10 +11,6 @@ require LiterateLean from git
 lean_lib QASM where
   roots := #[`QASM]
 
-@[default_target]
-lean_lib QASMDocs where
-  roots := #[`QASM.Guide]
-
 @[test_driver]
 lean_exe lean_qasm_tests where
   root := `Tests.Main

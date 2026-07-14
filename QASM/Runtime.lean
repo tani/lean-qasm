@@ -1,4 +1,5 @@
     import LiterateLean
+    import Lean
 
     open scoped LiterateLean
 
@@ -8,8 +9,6 @@ This module defines the runtime value carrier, backend boundary abstractions,
 gate logs, constant conversion, and array conversion foundations used by generated code from `elab`.
 
 ```lean
-import Lean
-
 namespace QASM
 
 /-- Target-dependent widths used for unsized OpenQASM classical types. -/
