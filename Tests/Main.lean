@@ -8,7 +8,7 @@ private def assertTrue (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw (IO.userError message)
 
 def nativeSource : String :=
-  begin_qasm
+  qasm% {
 OPENQASM 3.0;
 output int[32] result;
 int[32] x = 0;
@@ -21,22 +21,22 @@ while (x < 10) {
   if (x == 5) { break; }
 }
 result = x;
-  end_qasm
+  }
 
-elab_qasm NativeControl (nativeSource)
+qasm% NativeControl from nativeSource
 
 def inputSource : String :=
-  begin_qasm
+  qasm% {
 OPENQASM 3.0;
 input int[32] value;
 output int[32] result;
 result = value + 1;
-  end_qasm
+  }
 
-elab_qasm NativeInput (inputSource)
+qasm% NativeInput from inputSource
 
 def quantumSource : String :=
-  begin_qasm
+  qasm% {
 OPENQASM 3.0;
 include "stdgates.inc";
 const int[32] repetitions = 1;
@@ -54,12 +54,12 @@ barrier q;
 reset q[0];
 c = measure q;
 result = c;
-  end_qasm
+  }
 
-elab_qasm PortableQuantum (quantumSource)
+qasm% PortableQuantum from quantumSource
 
 def subroutineSource : String :=
-  begin_qasm
+  qasm% {
 OPENQASM 3.0;
 def bump(int[32] value) -> int[32] {
   value += 1;
@@ -67,12 +67,12 @@ def bump(int[32] value) -> int[32] {
 }
 output int[32] result;
 result = bump(20) + bump(20);
-  end_qasm
+  }
 
-elab_qasm NativeSubroutine (subroutineSource)
+qasm% NativeSubroutine from subroutineSource
 
 def mutableArraySource : String :=
-  begin_qasm
+  qasm% {
 OPENQASM 3.0;
 def update(mutable array[int[32], 2] values) {
   values[0] = 20;
@@ -82,14 +82,14 @@ output int[32] result;
 array[int[32], 2] values = {0, 0};
 update(values);
 result = values[0] + values[1];
-  end_qasm
+  }
 
-elab_qasm MutableArrayReference (mutableArraySource)
+qasm% MutableArrayReference from mutableArraySource
 
-elab_qasm IncludedFile from "Fixtures/Elab/file_program.qasm"
+qasmFile% IncludedFile "Fixtures/Elab/file_program.qasm"
 
 def arraySource : String :=
-  begin_qasm
+  qasm% {
 OPENQASM 3.0;
 output int[32] sum;
 output int[32] second_dimension;
@@ -98,34 +98,34 @@ array[int[32], 2, 3] matrix;
 values[0:1] = {20, 22};
 sum = values[0] + values[1];
 second_dimension = sizeof(matrix, 1);
-  end_qasm
+  }
 
-elab_qasm NativeArrays (arraySource)
+qasm% NativeArrays from arraySource
 
 def metadataSource : String :=
-  begin_qasm
+  qasm% {
 OPENQASM 3.0;
 pragma compiler optimize
 @tool.note preserve
 int[32] value = 1;
-  end_qasm
+  }
 
-elab_qasm MetadataProgram (metadataSource)
+qasm% MetadataProgram from metadataSource
 
 def complexSource : String :=
-  begin_qasm
+  qasm% {
 OPENQASM 3.0;
 output float[64] real_part;
 output float[64] imaginary_part;
 complex value = 2.5 + 3.5im;
 real_part = real(value);
 imaginary_part = imag(value);
-  end_qasm
+  }
 
-elab_qasm NativeComplex (complexSource)
+qasm% NativeComplex from complexSource
 
 def extendedSource : String :=
-  begin_qasm
+  qasm% {
 OPENQASM 3.0;
 output int[32] result;
 int[32] value = 2;
@@ -134,67 +134,67 @@ switch (value) {
   case 2 { result = 20; }
   default { result = 30; }
 }
-  end_qasm
+  }
 
 def extendedOptions : ElabOptions := { dialect := .extended }
 
-elab_qasm ExtendedSwitch (extendedSource) using extendedOptions
+qasm% ExtendedSwitch from extendedSource using extendedOptions
 
 def durationSource : String :=
-  begin_qasm
+  qasm% {
 OPENQASM 3.0;
 output duration elapsed;
 elapsed = 5ns + 2us;
-  end_qasm
+  }
 
-elab_qasm NativeDuration (durationSource)
+qasm% NativeDuration from durationSource
 
 def typedArrayIOSource : String :=
-  begin_qasm
+  qasm% {
 OPENQASM 3.0;
 input array[int[8], 2] values;
 output array[int[8], 2] result;
 result = values;
-  end_qasm
+  }
 
-elab_qasm TypedArrayIO (typedArrayIOSource)
+qasm% TypedArrayIO from typedArrayIOSource
 
 def arrayCastSource : String :=
-  begin_qasm
+  qasm% {
 OPENQASM 3.0;
 output array[uint[8], 2] result;
 array[int[16], 2] values = {20, 22};
 result = array[uint[8], 2](values);
-  end_qasm
+  }
 
-elab_qasm NativeArrayCast (arrayCastSource)
+qasm% NativeArrayCast from arrayCastSource
 
 def scalarForSource : String :=
-  begin_qasm
+  qasm% {
 OPENQASM 3.0;
 output float[64] result;
 result = 0.0;
 for float[64] value in {20, 22} {
   result += value;
 }
-  end_qasm
+  }
 
-elab_qasm NativeScalarFor (scalarForSource)
+qasm% NativeScalarFor from scalarForSource
 
 def modifiedUserGateSource : String :=
-  begin_qasm
+  qasm% {
 OPENQASM 3.0;
 include "stdgates.inc";
 gate pair a, b { h a; x b; }
 qubit[3] q;
 ctrl @ pair q[0], q[1], q[2];
 inv @ pair q[1], q[2];
-  end_qasm
+  }
 
-elab_qasm ModifiedUserGate (modifiedUserGateSource)
+qasm% ModifiedUserGate from modifiedUserGateSource
 
 def recursiveSource : String :=
-  begin_qasm
+  qasm% {
 OPENQASM 3.0;
 def factorial(int[32] value) -> int[32] {
   if (value <= 1) { return 1; }
@@ -202,12 +202,12 @@ def factorial(int[32] value) -> int[32] {
 }
 output int[32] result;
 result = factorial(5);
-  end_qasm
+  }
 
-elab_qasm RecursiveSubroutine (recursiveSource)
+qasm% RecursiveSubroutine from recursiveSource
 
 def indexedMeasurementSource : String :=
-  begin_qasm
+  qasm% {
 OPENQASM 3.0;
 output bit[2] result;
 qubit[2] q;
@@ -215,9 +215,9 @@ bit[2] measured;
 measure q[1] -> measured[0];
 measured[1] = measure q[1];
 result = measured;
-  end_qasm
+  }
 
-elab_qasm IndexedMeasurement (indexedMeasurementSource)
+qasm% IndexedMeasurement from indexedMeasurementSource
 
 structure TestState where
   nextQubit : Nat := 0
@@ -322,7 +322,7 @@ private def testRawSource : IO Unit := do
     "}\n" ++
     "result = x;\n"
   assertTrue (nativeSource == expected)
-    "begin_qasm/end_qasm must preserve the raw OpenQASM source"
+    "qasm% must preserve the raw OpenQASM source"
 
 private def testNativeControl : IO Unit := do
   match runNative.1 with

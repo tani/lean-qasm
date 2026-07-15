@@ -3,9 +3,9 @@
 
     open scoped LiterateLean
 
-# OpenQASM raw block parser for `begin_qasm`
+# OpenQASM quotation parser for `qasm%`
 
-`begin_qasm` / `end_qasm` performs line-based extraction and constructs the raw
+`qasm% { ... }` performs balanced extraction and constructs the raw
 OpenQASM source string as `qasmRaw`, implemented as a low-level parser.
 
 ```lean
@@ -13,76 +13,98 @@ namespace QASM
 
 open Lean Parser
 
-private def isHorizontalSpace (char : Char) : Bool :=
-  char == ' ' || char == '\t' || char == '\r'
 
-private partial def lineEnd (context : ParserContext) (position : String.Pos.Raw) :
-    String.Pos.Raw :=
-  if h : context.atEnd position then position
-  else if context.get' position h == '\n' then position
-  else lineEnd context (context.next' position h)
+private inductive QasmBlockMode where
+  | normal
+  | string
+  | lineComment
+  | blockComment
 
-private def nextLine (context : ParserContext) (position : String.Pos.Raw) :
-    String.Pos.Raw :=
-  if h : context.atEnd position then position
-  else context.next' position h
+private def qasmAdvance (context : ParserContext) (position : String.Pos.Raw) : String.Pos.Raw :=
+  if h : context.atEnd position then position else context.next' position h
 
-private partial def findEndDelimiter
-    (context : ParserContext) (lineStart : String.Pos.Raw) :
-    Option (String.Pos.Raw × String.Pos.Raw) :=
-  if context.atEnd lineStart then none
-  else
-    let stop := lineEnd context lineStart
-    let line := context.extract lineStart stop
-    if line.trimAscii == "end_qasm" then
-      some (lineStart, stop)
-    else
-      findEndDelimiter context (nextLine context stop)
+private def qasmChar? (context : ParserContext) (position : String.Pos.Raw) : Option Char :=
+  if h : context.atEnd position then none else some (context.get' position h)
 
-/--
-Consumes the raw bytes after `begin_qasm` through an `end_qasm` delimiter line.
-The opening token's trailing whitespace has already been consumed by Lean's token parser, so the
-token source range is used to recover the actual byte immediately following `begin_qasm`.
--/
-private def qasmRawFn : ParserFn := fun context state => Id.run do
+private partial def qasmFindClose (context : ParserContext) (position : String.Pos.Raw)
+    (depth : Nat) (mode : QasmBlockMode) : Option String.Pos.Raw :=
+  match qasmChar? context position with
+  | none => none
+  | some char =>
+      let next := qasmAdvance context position
+      match mode with
+      | .normal =>
+          if char == '"' then qasmFindClose context next depth .string
+          else if char == '/' then
+            match qasmChar? context next with
+            | some '/' => qasmFindClose context (qasmAdvance context next) depth .lineComment
+            | some '*' => qasmFindClose context (qasmAdvance context next) depth .blockComment
+            | _ => qasmFindClose context next depth .normal
+          else if char == '{' then qasmFindClose context next (depth + 1) .normal
+          else if char == '}' then
+            if depth == 0 then some position else qasmFindClose context next (depth - 1) .normal
+          else qasmFindClose context next depth .normal
+      | .string =>
+          if char == '\\' then qasmFindClose context (qasmAdvance context next) depth .string
+          else if char == '"' then qasmFindClose context next depth .normal
+          else qasmFindClose context next depth .string
+      | .lineComment =>
+          if char == '\n' then qasmFindClose context next depth .normal
+          else qasmFindClose context next depth .lineComment
+      | .blockComment =>
+          if char == '*' && qasmChar? context next == some '/' then
+            qasmFindClose context (qasmAdvance context next) depth .normal
+          else qasmFindClose context next depth .blockComment
+
+private def qasmBlockFn : ParserFn := fun context state => Id.run do
   let opening := state.stxStack.back
-  let openingStop := opening.getTailPos?.getD state.pos
-  let openingLineStop := lineEnd context openingStop
-  let afterOpening := context.extract openingStop openingLineStop
-  unless afterOpening.toList.all isHorizontalSpace do
-    return state.mkUnexpectedErrorAt
-      "`begin_qasm` must be followed only by whitespace and a newline"
-      openingStop
-  if context.atEnd openingLineStop then
-    return state.mkUnexpectedErrorAt "unterminated `begin_qasm` block" openingStop
-  let bodyStart := nextLine context openingLineStop
-  let some (bodyStop, delimiterStop) := findEndDelimiter context bodyStart
-    | return state.mkUnexpectedErrorAt "unterminated `begin_qasm` block" bodyStart
+  let bodyStart := opening.getTailPos?.getD state.pos
+  let some bodyStop := qasmFindClose context bodyStart 0 .normal
+    | return state.mkUnexpectedErrorAt "unterminated qasm% block" bodyStart
   let leading := context.mkEmptySubstringAt bodyStart
   let trailing := context.mkEmptySubstringAt bodyStop
   let body := context.extract bodyStart bodyStop
   let atom := mkAtom (.original leading bodyStart trailing bodyStop) body
-  let state := state.setPos delimiterStop |>.pushSyntax atom
-  whitespace context state
+  return (state.setPos (qasmAdvance context bodyStop)).pushSyntax atom
 
-def qasmRaw : Parser where
+def qasmBlock : Parser where
   info := epsilonInfo
-  fn := qasmRawFn
+  fn := qasmBlockFn
 
-@[combinator_parenthesizer qasmRaw]
-def qasmRaw.parenthesizer := Lean.PrettyPrinter.Parenthesizer.visitToken
+@[combinator_parenthesizer qasmBlock]
+def qasmBlock.parenthesizer := Lean.PrettyPrinter.Parenthesizer.visitToken
 
-@[combinator_formatter qasmRaw]
-def qasmRaw.formatter := Lean.PrettyPrinter.Formatter.visitAtom Name.anonymous
+@[combinator_formatter qasmBlock]
+def qasmBlock.formatter := Lean.PrettyPrinter.Formatter.visitAtom Name.anonymous
 
-syntax (name := qasmStringTerm) "begin_qasm" qasmRaw : term
+```
 
-@[macro qasmStringTerm] def expandQasmString : Macro := fun stx => do
+The raw quotation parser is registered before its syntax expansion.
+
+```lean
+syntax (name := qasmQuotation) "qasm%" "{" qasmBlock : term
+syntax (name := qasmFileQuotation) "qasmFile%" str : term
+
+private def normalizeQasmBlock (source : String) : String :=
+  let source := if source.startsWith "\n" then source.drop 1 |>.toString else source
+  match source.splitOn "\n" |>.reverse with
+  | trailing :: rest =>
+      if trailing.toList.all (fun char => char == ' ' || char == '\t' || char == '\r') then
+        String.intercalate "\n" rest.reverse ++ "\n"
+      else source
+  | [] => source
+
+@[macro qasmQuotation] def expandQasmQuotation : Macro := fun stx => do
   let some body := stx.getArgs.back?
-    | Macro.throwErrorAt stx "invalid raw OpenQASM block"
+    | Macro.throwErrorAt stx "invalid qasm% block"
   match body with
-  | .atom _ value => pure (Lean.Syntax.mkStrLit value)
-  | _ => Macro.throwErrorAt body "invalid raw OpenQASM block"
+  | .atom _ value => pure (Lean.Syntax.mkStrLit (normalizeQasmBlock value))
+  | _ => Macro.throwErrorAt body "invalid qasm% block"
+
+@[macro qasmFileQuotation] def expandQasmFileQuotation : Macro := fun stx => do
+  let some path := stx.getArgs.back?
+    | Macro.throwErrorAt stx "invalid qasmFile% quotation"
+  pure path
 
 end QASM
 ```

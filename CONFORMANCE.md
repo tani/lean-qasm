@@ -2,14 +2,14 @@
 
 LeanQASM targets the official `spec/v3.0.0` grammar.  “Parsed” below means the
 standalone frontend has an AST node for the construct.  “Lowered” means
-`elab_qasm` emits executable portable Lean.  Target-only behavior is never
+Named `qasm%` and `qasmFile%` commands emit executable portable Lean.  Target-only behavior is never
 silently guessed.
 
 ## Portable lowering
 
 | Area | Status | Lean mapping |
 | --- | --- | --- |
-| Source embedding | Lowered | Raw `begin_qasm` / `end_qasm` is a `String`; QASM text is not tokenized as Lean |
+| Source embedding | Lowered | Raw `qasm% { ... }` is a `String`; QASM text is not tokenized as Lean |
 | Grammar audit | Tested | All 21 official 3.0 example programs parse; all 10 official invalid grammar fixtures are rejected |
 | Classical types | Lowered | `bool`, scalar `bit`, `bit[n]`, fixed `int`/`uint`, `float[32/64]`, `angle`, `complex[float[32/64]]`, and SI `duration` |
 | Arrays | Lowered | Rank 1–7 fixed arrays, nested literals, default initialization, indexing, multidimensional slicing, concatenation, array references, `sizeof`, shape-preserving array casts, and typed I/O codecs |
@@ -65,7 +65,7 @@ semantic validator for every valid or invalid OpenQASM 3.0 program:
   values. Vendor-specific float widths and exact vendor choices for overflow,
   angle narrowing, and floating exceptional values are not modeled.
 - The normalized AST printer preserves program structure but not comments or
-  original whitespace. The raw `begin_qasm` string remains lossless.
+  original whitespace. The raw `qasm%` string remains lossless.
 - Calibration blocks are opaque text in the host AST; LeanQASM does not parse a
   companion OpenPulse grammar.
 

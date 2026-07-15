@@ -11,11 +11,23 @@ lake build
 lake test
 ```
 
+
+## Quotation interface
+
+Use `qasm% { ... }` for inline OpenQASM source. The quotation is a Lean term of type `String`; nested braces, strings, and comments are preserved. `qasmFile% "path.qasm"` provides a path literal for file-oriented tooling.
+
+```lean
+def source : String := qasm% {
+OPENQASM 3.0;
+if (true) { x; }
+}
+```
+
 ## Embedded source and elaboration
 
-`begin_qasm ... end_qasm` is a raw Lean term of type `String`. The text between
+`qasm% { ... }` is a raw Lean term of type `String`. The text between
 the delimiter lines is retained verbatim, including comments and indentation,
-and can be stored, transformed, parsed, or passed to `elab_qasm`.
+and can be stored, transformed, parsed, or passed to a named `qasm%` command.
 
 ```lean
 import QASM
@@ -23,7 +35,7 @@ import QASM
 open QASM
 
 def source : String :=
-  begin_qasm
+  qasm% {
 OPENQASM 3.0;
 input int[32] limit;
 output int[32] result;
@@ -34,9 +46,9 @@ for uint i in [0:limit] {
 }
 while (value < 5) { value += 1; }
 result = value;
-  end_qasm
+  }
 
-elab_qasm Example (source)
+qasm% Example from source
 ```
 
 The command creates:
@@ -65,7 +77,7 @@ def options : QASM.ElabOptions := {
   dialect := .extended
 }
 
-elab_qasm Configured (source) using options
+qasm% Configured from source using options
 ```
 
 Files are resolved relative to the current Lean source file. Nested QASM
@@ -73,7 +85,7 @@ Files are resolved relative to the current Lean source file. Nested QASM
 through `ElabOptions.includePaths`. `stdgates.inc` is intrinsic.
 
 ```lean
-elab_qasm FromFile from "circuits/example.qasm"
+qasmFile% FromFile "circuits/example.qasm"
 ```
 
 ## Backend boundary
