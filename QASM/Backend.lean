@@ -213,3 +213,10 @@ end TraceBackend
 
 end QASM
 ```
+
+<!--
+vim: set filetype=markdown :
+Local Variables:
+mode: markdown
+End:
+-->
