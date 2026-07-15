@@ -8,8 +8,20 @@
 
 # OpenQASM type analysis and checking
 
-This module collects OpenQASM type information and performs constant evaluation,
-declaration validation, and signature checking for subroutines and gates.
+This module turns the source-oriented AST into facts strong enough for code generation.
+It resolves target-dependent widths and array shapes, evaluates integer designators,
+collects callable signatures, infers expression types, and checks every statement under
+its lexical context.
+
+The checker is intentionally distinct from the earlier semantic pass. Semantics handles
+source-wide rules and backend capability discovery; typing answers representation and
+compatibility questions needed by the generated Lean program. Successful analysis leaves
+no unresolved default width, array extent, callable arity, or operand category at the
+portable boundary.
+
+Checking proceeds in dependency order: global constants first, signatures second, then
+statement bodies. This allows a body to call a declaration that appears later in source
+while still requiring widths and shapes to be compile-time values.
 
 ```lean
 namespace QASM
@@ -38,6 +50,21 @@ inductive ResolvedType where
       (shape : Option (Array Nat)) (rank : Nat)
   deriving Repr, Inhabited, BEq
 
+```
+
+## Compile-time integer designators
+
+`ResolvedScalar` and `ResolvedType` are the normalized vocabulary consumed by later
+checking and elaboration. Source `TypeSpec` nodes may still contain expressions for widths
+and dimensions; resolved types contain only concrete natural numbers and explicit array
+rank information.
+
+The constant environment stores integers because widths, ranks, and extents require the
+integer-evaluable subset. `evalConstInt` supports arithmetic, bitwise operations,
+comparisons, logical operators, and casts while rejecting expressions that depend on
+runtime state.
+
+```lean
 abbrev ConstantEnvironment := List (String × Int)
 
 private def diagnostic (message : String) : Diagnostic := ⟨message⟩
@@ -96,6 +123,21 @@ partial def evalConstInt (environment : ConstantEnvironment) :
   | expression =>
       throw (diagnostic s!"expression is not an integer constant: {expression.toQasm}")
 
+```
+
+## Resolving widths and shapes
+
+Every designator used as a width or extent passes through `positiveNat`, so zero and
+negative sizes fail at the point where their purpose is known. Missing scalar widths are
+filled from `TargetConfig`; explicit float and complex widths are restricted to the
+representations supported by the runtime.
+
+`resolveScalar` handles scalar families, while `resolveType` recursively handles concrete
+arrays and array references. Nested source array syntax is normalized to one element type
+plus a multidimensional shape, preventing two competing internal representations of the
+same layout.
+
+```lean
 private def positiveNat (environment : ConstantEnvironment) (label : String)
     (expression : Expression) : Except Diagnostic Nat := do
   let value ← evalConstInt environment expression
@@ -147,6 +189,19 @@ private def resolveScalar (target : TargetConfig) (environment : ConstantEnviron
       pure .void
   | _ => throw (diagnostic s!"unknown OpenQASM type '{name}'")
 
+```
+
+### Classical array restrictions
+
+Arrays contain classical scalar values only. Qubits, `void`, and `stretch` cannot become
+elements, and an already-resolved array cannot be nested as another element because its
+dimensions belong in the single shape vector.
+
+Concrete arrays carry every extent. Array references may instead carry only a rank, which
+models callable parameters that accept any extents of a fixed dimensionality. Both forms
+enforce OpenQASM's maximum rank before code generation.
+
+```lean
 private def classicalArrayElement (element : ResolvedType) : Except Diagnostic ResolvedScalar :=
   match element with
   | .scalar scalar =>
@@ -409,9 +464,15 @@ private def selectionSize? (constants : ConstantEnvironment) : Expression → Op
 
 ## Expression inference
 
-Expression inference follows the source tree recursively and computes a resolved type for
-every literal, operator, selection, call, cast, and measurement. Local helpers share the
-same context for built-ins and gate operands.
+Expression inference follows the source tree recursively and computes one resolved type
+for every literal, operator, selection, call, cast, and measurement. The result is not
+stored by mutating the AST; callers request it under a `CheckContext` and lexical scope,
+which keeps shadowing and callable environments explicit.
+
+Operator cases enforce category compatibility before choosing a result type. Selection
+reduces bit widths or array shapes, concatenation combines compatible widths, calls use
+collected signatures, and measurement converts quantum operands into classical bits.
+Shared helpers apply the same operand-width rules to built-in and user-defined gates.
 
 ```lean
 
@@ -594,9 +655,15 @@ where
 
 ## Statement and control-flow checking
 
-Statement checking threads lexical scopes through native OpenQASM control flow. It also
-enforces writable targets, loop-only control statements, gate-body restrictions, return
-types, operand arities, and measurement destinations.
+Statement checking threads lexical scopes through native OpenQASM control flow. Each
+nested block receives an explicit scope stack, so declarations, mutability, and shadowing
+are checked without a global symbol table.
+
+The same pass enforces writable assignment roots, loop-only control statements,
+gate-body restrictions, subroutine return types, callable and gate arities, quantum versus
+classical operand widths, and measurement destinations. Because expression inference is
+called from the relevant statement case, errors are reported with the operation that
+imposes the constraint rather than in a disconnected post-pass.
 
 ```lean
 

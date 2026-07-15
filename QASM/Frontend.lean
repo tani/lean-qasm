@@ -6,7 +6,21 @@
 
 # OpenQASM 3.0 frontend
 
-The frontend parses OpenQASM source independently of Lean's token grammar.
+The frontend parses OpenQASM independently of Lean's token grammar. It is a conventional,
+pure pipeline:
+
+1. the lexer advances a positioned cursor and emits source-spanned tokens;
+2. the grammar parser converts those tokens into a source-faithful AST;
+3. public entry points compose both stages and preserve structured parse errors;
+4. normalized printers turn AST nodes back into reparsable OpenQASM.
+
+This module deliberately stops before semantic and type checking. The AST retains
+constructs that may be invalid in context or require backend capabilities, allowing later
+passes to report those concerns with the original source structure still intact.
+
+The implementation keeps raw calibration payloads opaque, but parses portable expressions,
+statements, types, callables, and control flow structurally. That boundary permits backend
+languages to evolve without teaching the portable frontend their internal grammar.
 
 ```lean
 namespace QASM
@@ -123,6 +137,21 @@ private def takeDigitGroup (base : Nat) (start : SourcePos) (cursor : LexCursor)
     throw ⟨start, "numeric separators must occur between digits"⟩
   pure (raw, next)
 
+```
+
+#### Numeric literal scanning
+
+OpenQASM numeric syntax combines base prefixes, decimal points, exponents, imaginary
+suffixes, duration units, and underscore separators. `takeDigitGroup` validates separator
+placement before `takeNumber` assembles the complete token. This prevents the grammar
+parser from receiving ambiguous partial numbers such as a prefix without digits or two
+adjacent separators.
+
+The lexer preserves the original spelling in the token. Classification into integer,
+floating, imaginary, and timing literals happens later, so diagnostics and normalized
+printing can still refer to the source text.
+
+```lean
 private def takeNumber (start : SourcePos) (cursor : LexCursor) :
     Except ParseError (String × LexCursor) := do
   if startsWithChars cursor.rest ['0', 'b'] || startsWithChars cursor.rest ['0', 'B'] then
@@ -549,6 +578,21 @@ private partial def collectBalancedText (depth : Nat := 1)
       else collectBalancedText (depth - 1) ("}" :: parts)
   | kind => collectBalancedText depth (tokenText kind :: parts)
 
+```
+
+#### Literal classification before expression parsing
+
+Balanced calibration bodies are collected as opaque text because their grammar belongs
+to a selected backend rather than portable OpenQASM. Ordinary numeric and bitstring
+literals take the opposite path: they are classified and validated before becoming
+expression nodes.
+
+The expression parser that follows is one mutually recursive family. Precedence climbing
+handles infix operators, with exponentiation treated as right-associative. Unary, postfix,
+call, cast, index, set, range, and concatenation forms all converge on the same
+`Expression` tree, so later passes do not need to recover precedence from tokens.
+
+```lean
 private def classifyNumber (raw : String) : Literal :=
   if raw.endsWith "im" then .imaginary raw
   else if ["dt", "ns", "us", "µs", "ms", "s"].any
@@ -903,6 +947,25 @@ private def parseDeclaration (quantum legacy : Bool) : GrammarParser Statement :
     expect ";"
     pure (if quantum then .qubit name size else .bit name size)
 
+```
+
+#### Dispatching complete statements
+
+The small helpers above recognize assignment operators, the optional version directive,
+and the two declaration spellings inherited from OpenQASM 2 and 3. `parseStatement` is
+then the central dispatcher for the language.
+
+Keyword-led forms are selected immediately. Identifier-led forms defer their decision:
+the parser first attempts the shared expression prefix, then distinguishes assignment,
+expression statement, and gate invocation from the following token. Saving and restoring
+the grammar state makes that ambiguity explicit rather than duplicating expression
+parsing.
+
+Nested blocks call back into the same statement parser. Consequently scopes, loops,
+branches, switches, callable bodies, and calibration wrappers all produce one uniform
+recursive `Statement` tree.
+
+```lean
 private partial def parseStatement : GrammarParser Statement := do
   match ← current? with
   | some ⟨.symbol "{", _⟩ =>

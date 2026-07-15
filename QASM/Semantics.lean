@@ -5,8 +5,22 @@
 
 # Static semantics for OpenQASM source programs
 
-This pass handles the source-wide rules that are awkward to encode in grammar productions:
-constant evaluation, control-flow placement, and discovery of backend capabilities.
+Parsing answers whether tokens have a valid grammatical shape; this pass answers
+source-wide questions that require context. It deliberately separates three concerns:
+
+1. evaluate the restricted constant expressions needed by declarations and designators;
+2. validate placement of `break`, `continue`, and `return` across nested scopes;
+3. collect features whose meaning must be supplied by a concrete backend.
+
+The pass accumulates diagnostics instead of stopping at the first misplaced control-flow
+statement. Capability discovery is descriptive rather than rejecting: portable
+elaboration can later compare the collected requirements with the backend-independent
+subset it supports.
+
+This module has its own small semantic `Value` domain. It is not the execution-time
+`QASM.Value`: constants are evaluated before generated runtime code exists, and unsupported
+floating, complex, or timing cases remain explicit instead of silently adopting runtime
+semantics.
 
 ```lean
 namespace QASM
@@ -48,6 +62,20 @@ private def bitsOfString (value : String) : Except Diagnostic (Array Bool) := do
     else if char != '_' then throw ⟨s!"invalid bitstring digit '{char}'"⟩
   pure bits
 
+```
+
+### Primitive constant operations
+
+The environment is a lexical list because constant declarations are processed in source
+order and lookup should prefer the most recent binding. Literal helpers remove permitted
+separators while preserving explicit failures for unsupported spellings.
+
+`integerBinary` is the closed arithmetic vocabulary available during this semantic pass.
+Division and remainder detect zero locally, comparisons return semantic booleans, and
+unknown operators produce diagnostics. More general numeric behavior is deferred until
+typing has resolved the operand family and generated runtime code can preserve widths.
+
+```lean
 private def integerBinary (operator : String) (left right : Int) :
     Except Diagnostic Value :=
   match operator with

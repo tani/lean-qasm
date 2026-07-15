@@ -311,6 +311,19 @@ inductive Value where
   | unit
   deriving Repr, Inhabited, BEq
 
+```
+
+### Interpreting the runtime carrier
+
+`Value` is intentionally broader than any one OpenQASM source type. It is the common
+carrier used inside generated functions, so it must represent typed scalars, nested
+arrays, an uninitialized declaration, and the absence of an expression result.
+
+The `Value` namespace begins with literal parsing and projection functions. Projections
+such as `truthy`, `asInt`, and `asFloat` define the coercions used only after the typing
+pass has selected a legal operation; they are not a replacement for static checking.
+
+```lean
 namespace Value
 
 private def digitValue (char : Char) : Option Nat :=
@@ -491,6 +504,20 @@ partial def castArray (typeName : String) (width : Nat) (shape : List Nat)
           else .unit
       | _ => .unit
 
+```
+
+### Array construction and result representation
+
+Scalar casts and shaped array casts share the same normalization rules. A shape mismatch
+produces `.unit`, which the generated runner later turns into a structured runtime error
+at the boundary rather than constructing a malformed proof-bearing array.
+
+`asArray` gives scalar operations a singleton view when broadcasting is allowed, and
+`replicateShape` builds nested defaults for local declarations. The rewrapping helpers
+then preserve fixed width, angle, bit-vector, float precision, duration, and complex
+representation after arithmetic.
+
+```lean
 def scalarBit (value : Value) : Value := .bit value.truthy
 
 def asArray : Value → Array Value
@@ -535,6 +562,20 @@ private def rewrapComplex (left right : Value) (real imaginary : Float) : Value 
       .complex32 real.toFloat32 imaginary.toFloat32
   | _, _ => .complex real imaginary
 
+```
+
+### Unary and binary operators
+
+By this point the frontend has already resolved operator legality. These functions execute
+the selected operation while retaining the most informative runtime representation.
+Integer-like results use modular rewrapping, mixed floating results preserve 32-bit
+precision only when both operands permit it, and complex arithmetic keeps real and
+imaginary components together.
+
+Unknown operator strings conservatively return `.unit` or the unchanged value according
+to the operation family; generated code emits only the supported names.
+
+```lean
 def unary (operator : String) (value : Value) : Value :=
   match operator with
   | "!" => .boolean (!value.truthy)
@@ -671,6 +712,20 @@ private def selectBits (bits : Array Bool) (selector : Value) : Value :=
       | some selectedBit => .bit selectedBit
       | none => .unit
 
+```
+
+### A uniform bit view
+
+Bits, bit vectors, fixed-width integers, and angles all support bit selection. `bitsOfValue`
+creates that common view without discarding the original carrier: selection operates on
+the extracted bits, while mutation later calls `restoreBits` to rebuild the original
+signed, unsigned, angle, or bit representation.
+
+Array selection follows the same `indexOne` path. An array-valued selector gathers several
+positions; a scalar selector returns one position. Negative indices are normalized by the
+earlier `resolveIndex` helper.
+
+```lean
 private def bitsOfValue : Value → Option (Array Bool)
   | .bit value => some #[value]
   | .bits values => some values
@@ -718,6 +773,19 @@ private def restoreBits (template : Value) (bits : Array Bool) : Value :=
   | .angle width _ => .angle width (normalizedUnsigned width numeric).natAbs
   | _ => template
 
+```
+
+### Recursive updates
+
+`setIndex` mirrors `index` structurally. It descends through nested arrays until the final
+selector, updates only the selected element or bit, and rebuilds every enclosing array on
+the way out. Out-of-range positions leave the value unchanged here; checked generated
+paths use the explicit bounds helpers when an error must be surfaced to the caller.
+
+Keeping selection and update pure makes alias write-back predictable and avoids hidden
+mutable state inside the runtime carrier.
+
+```lean
 partial def setIndex (value : Value) (indices : Array Value) (newValue : Value) : Value :=
   match indices.toList with
   | [] => newValue
@@ -912,6 +980,20 @@ private def expectInitialized (value : Value) : Except String Unit :=
   | .unit => throw "an expression produced no value"
   | _ => pure ()
 
+```
+
+### Scalar codecs
+
+Every scalar decoder first rejects `.uninitialized` and `.unit`. It then converts the
+already-checked carrier to the native Lean field type generated for program inputs and
+outputs.
+
+The `BitVec` decoder is stricter than numeric coercion: it reconstructs little-endian bits
+and verifies the declared width. Numeric wrappers use their constructors to re-establish
+fixed-width normalization, while floating, complex, angle, and duration wrappers retain
+their source-level distinctions.
+
+```lean
 instance : ValueCodec Bool where
   encode value := .boolean value
   decode value := do
@@ -993,6 +1075,19 @@ instance : ValueCodec Duration where
     expectInitialized value
     pure ⟨value.asFloat⟩
 
+```
+
+### Proof-bearing shaped arrays
+
+`FixedArray` carries a proof that its flat data length matches the product of its shape.
+Encoding nests the flat data according to that shape. Decoding first validates every
+nested extent, then flattens the carrier and uses the resulting size equality to construct
+the proof.
+
+This is the final runtime boundary: malformed nesting is reported as an error rather than
+being truncated, padded, or accepted under a weaker shape.
+
+```lean
 private partial def flatten : Value → Array Value
   | .array values => values.flatMap flatten
   | value => #[value]

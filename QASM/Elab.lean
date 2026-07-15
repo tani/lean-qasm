@@ -12,8 +12,21 @@
 
 # OpenQASM elaboration pipeline
 
-The core of the `qasm!` elaborator; it runs parsing, include expansion, type checking,
-and native Lean function generation in a single command.
+`qasm!` is a compile-time compiler embedded in Lean's command elaborator. This module
+coordinates the complete path from captured OpenQASM text to native Lean declarations:
+include expansion, frontend parsing, semantic checks, type analysis, portable code
+generation, static diagram construction, and command elaboration.
+
+Generated code executes classical behavior as ordinary Lean control flow. Only allocation,
+unitaries, measurement, reset, and barriers cross `QuantumBackend`. This division keeps
+programs portable while allowing a caller to choose a trace backend, simulator, or device
+integration at the generated `run` boundary.
+
+Most helpers below produce Lean source strings rather than constructing syntax trees
+incrementally. That choice makes the emitted program readable in diagnostics and keeps
+large recursive OpenQASM lowering routines independent of Lean macro quotations. The
+final command boundary reparses and elaborates the assembled declarations in the caller's
+environment.
 
 ```lean
 namespace QASM
@@ -122,6 +135,19 @@ private partial def expressionCode : Expression → String
   | .durationOf _ =>
       "QASM.Value.unit"
 
+```
+
+### Defaults and scalar coercions
+
+Expression lowering assumes an initialized runtime `Value`. Declarations without an
+initializer therefore need a type-directed default: zero for numeric scalars, false bits,
+and recursively replicated defaults for shaped arrays.
+
+`scalarCoercionCode` applies the resolved source declaration at assignment boundaries.
+Target-sized types read their width from the generated target configuration when the
+source omitted a designator, ensuring that defaults, casts, and arithmetic agree.
+
+```lean
 private partial def typeDefaultCode : TypeSpec → String
   | .scalar "bool" _ => "QASM.Value.boolean false"
   | .scalar "bit" width =>
@@ -165,6 +191,20 @@ private def concatenateArrays (values : List String) : String :=
   | [] => "#[]"
   | first :: rest => rest.foldl (fun acc value => s!"({acc} ++ {value})") first
 
+```
+
+### Quantum operands and assignment targets
+
+Classical expressions lower to one `Value`, but a quantum operand lowers to an array of
+backend qubit handles. Index ranges and sets filter-map the selected register positions,
+while scalar indices extract one-element arrays. Concatenating those arrays implements
+OpenQASM operand-list flattening before broadcast validation.
+
+`operandTarget?` converts a writable logical operand back into an expression-shaped target.
+The assignment helper uses the same recursive runtime indexing functions for ordinary
+assignment and compound assignment, so reads and writes share index semantics.
+
+```lean
 private def operandCode : Operand → String
   | .hardware index => s!"#[qasm_physical_{index}]"
   | .identifier name indices =>
@@ -290,6 +330,16 @@ private def expressionOperandCode : Expression → String
       operandCode (.identifier name #[indices])
   | _ => "#[]"
 
+```
+
+### Matching source arguments to callable parameters
+
+Callable definitions decide how each argument is represented. Quantum parameters receive
+qubit arrays directly; classical parameters receive parenthesized runtime values.
+Mutable array references are identified separately because they require copy-out after
+the generated call returns.
+
+```lean
 private def callableArgumentsCode
     (definitions : Array ArgumentDefinition) (arguments : Array Expression) : Array String :=
   (definitions.toList.zip arguments.toList).map (fun (definition, argument) =>
@@ -310,6 +360,19 @@ private def assignmentValueCode
       s!"{identifier} := QASM.Value.setIndex {identifier} {indexValues} ({updated})"
   | _ => "pure ()"
 
+```
+
+### Propagating subroutine results and mutable references
+
+Generated subroutines return an `Except` payload containing the ordinary return value and
+an array of mutable-reference values. Invocation lowering evaluates arguments first,
+propagates a `RunError` unchanged, then writes each mutable result back to its original
+source target in declaration order.
+
+Fresh local names prevent collisions with OpenQASM identifiers. Returning a prelude plus
+the final value lets callers preserve evaluation order without duplicating this protocol.
+
+```lean
 private def subroutineInvocationFromCodes
     (context : GenerateContext) (name : String) (arguments : Array Expression)
     (argumentValues : Array String) :
@@ -448,6 +511,18 @@ private partial def lowerExpression (context : GenerateContext) : Expression →
         lowered := lowered.push value
       pure (combinePrelude preludes, s!"QASM.Value.array {arrayCode lowered}")
 
+```
+
+### Returning from generated bodies
+
+After effectful expressions have produced their preludes, return generation depends on
+the current body kind. A program encodes all declared outputs, a subroutine packages its
+value with mutable-reference write-backs, and a gate returns only success.
+
+Centralizing this choice prevents explicit `return` statements and implicit fall-through
+returns from drifting into different wire formats.
+
+```lean
 private def subroutinePayloadCode (context : GenerateContext) (value : String) : String :=
   let arguments := arrayCode (context.mutableArguments.map leanIdentifier)
   s!"({value}, {arguments})"
@@ -833,6 +908,20 @@ private def collectMetadata (program : Frontend.Program) : Array String × Array
 
 private abbrev DiagramEnvironment := List (String × Option DiagramOperand)
 
+```
+
+## Building static circuit metadata
+
+Diagram generation is a compile-time interpretation of the checked source, separate from
+runtime execution. `DiagramEnvironment` maps source names to known wire sets when possible.
+`DiagramState` owns stable display labels and declaration order, while `DiagramM` combines
+that state with explicit failure.
+
+Unknown dynamic selections are represented as approximate operands instead of guessed
+exact wires. This preserves a useful source diagram without claiming that a runtime branch
+or index has already been chosen.
+
+```lean
 private structure DiagramState where
   wires : Array String := #[]
   declaredNames : Array String := #[]
@@ -975,6 +1064,19 @@ private def diagramAllocate
       declaredNames := state.declaredNames.push name }
   pure { wires := Array.range count |>.map (start + ·) }
 
+```
+
+### Gate labels, controls, and conventional glyphs
+
+Allocation assigns diagram-only wire indices and disambiguates repeated source names.
+Gate helpers then separate two representations: a complete textual label for arbitrary
+operations and a conservative conventional glyph for controls, X targets, and swaps.
+
+Control counts must be compile-time constants before exact control circles can be drawn.
+Inverse or power modifiers may force a labeled target box even for a familiar gate, which
+avoids erasing semantically relevant modifiers from the static view.
+
+```lean
 private def diagramModifierLabel : GateModifier → String
   | .inverse => "inv"
   | .power exponent => s!"pow({exponent.toQasm})"
@@ -1053,6 +1155,19 @@ private def diagramGateGlyph (analysis : Frontend.TypeAnalysis)
         .controlledX controls
       else if controls.isEmpty then .box else .controlledBox controls target
 
+```
+
+### Emitting diagram metadata as Lean source
+
+The diagram exists first as compiler-side structures. The following encoders serialize
+operation kinds, control polarities, glyphs, operands, nested items, and the complete
+circuit into Lean expressions embedded in `CheckedProgramInfo`.
+
+This is structural serialization rather than SVG generation. `QASM.Diagram` remains the
+sole presentation layer and can change rendering without recompiling the OpenQASM parser
+or duplicating compiler logic.
+
+```lean
 private def diagramOperationKindCode : DiagramOperationKind → String
   | .gate => "QASM.DiagramOperationKind.gate"
   | .measurement => "QASM.DiagramOperationKind.measurement"
@@ -1106,6 +1221,19 @@ private def diagramSubroutine? (program : Frontend.Program) (name : String) :
         if candidate == name then some arguments else none
     | _ => none
 
+```
+
+### Discovering quantum effects inside expressions
+
+Subroutine calls can occur inside larger classical expressions yet still perform quantum
+operations. `diagramExpressionItems` recursively visits every evaluation position and
+inlines the static items contributed by known subroutine bodies.
+
+Arguments are bound to diagram operands when their quantum target is statically known.
+Literal and purely classical leaves contribute no circuit item, while nested calls,
+indices, ranges, sets, and arrays preserve source evaluation order.
+
+```lean
 private partial def diagramExpressionItems
     (program : Frontend.Program) (analysis : Frontend.TypeAnalysis)
     (environment : DiagramEnvironment) (detail : String) :
@@ -1160,6 +1288,18 @@ private partial def diagramExpressionItems
         items := items ++ (← diagramExpressionItems program analysis environment detail value)
       pure items
 
+```
+
+### Diagram regions and measurements
+
+Small adapters lift ordinary `Except` computations into the diagram state monad and omit
+empty source regions. Measurement construction records the resolved quantum operand and
+an optional classical destination but never chooses a result.
+
+That distinction is essential: diagrams describe possible static effects, whereas
+measurement outcomes belong to the runtime backend.
+
+```lean
 private def diagramLift (value : Except String α) : DiagramM α :=
   match value with
   | .ok value => pure value
@@ -1178,6 +1318,20 @@ private def diagramMeasurement
       operands := #[operand], classicalTarget := target }
   pure #[.operation operation]
 
+```
+
+### Walking statements into diagram items
+
+The mutually recursive statement walk threads diagram bindings in source order.
+Declarations extend the environment, gate calls create operation items, and nested
+control-flow bodies become labeled regions. Definitions themselves are skipped at the
+top level and expanded only when a source call makes their effects relevant.
+
+Loops and branches are represented once as static regions; the walker does not execute
+conditions or unroll runtime iteration counts. Approximation flags expose every place
+where exact target wires depend on values unavailable during elaboration.
+
+```lean
 mutual
 private partial def diagramStatements
     (program : Frontend.Program) (analysis : Frontend.TypeAnalysis)
@@ -1329,6 +1483,19 @@ private partial def diagramStatement
       diagramStatement program analysis environment statement
 end
 
+```
+
+### Final program metadata and backend binders
+
+After the recursive walk finishes, `circuitDiagram` combines collected wire labels and
+items. `programCommand` embeds that diagram beside target widths, source digests,
+annotations, and pragmas in the generated `CheckedProgramInfo`.
+
+`backendBinders` is the portable execution contract shared by generated programs,
+subroutines, and gates. It quantifies over the monad, qubit handle, and backend error type
+rather than selecting an implementation during elaboration.
+
+```lean
 private def circuitDiagram
     (program : Frontend.Program) (analysis : Frontend.TypeAnalysis) : Except String CircuitDiagram :=
   match (diagramStatements program analysis [] program.statements).run {} with

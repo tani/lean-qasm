@@ -16,6 +16,20 @@ open Lean ProofWidgets
 
 meta section
 
+```
+
+## Building SVG without string concatenation
+
+ProofWidgets represents HTML and SVG as a typed tree. The helpers below construct that
+tree directly, so escaping and child structure remain the responsibility of the widget
+renderer rather than ad-hoc string interpolation. Attributes are encoded as JSON because
+that is the representation expected by `Html.element`.
+
+The small wire and label utilities establish two presentation policies used throughout
+the renderer: duplicate wire references collapse to one lane, and long source labels are
+truncated before they can dominate a circuit column.
+
+```lean
 private def svgNode (tag : String) (attributes : Array (String × Json))
     (children : Array Html := #[]) : Html :=
   .element tag attributes children
@@ -31,6 +45,20 @@ private def deduplicateWires (wires : Array Nat) : Array Nat :=
 private def truncateLabel (limit : Nat) (value : String) : String :=
   if value.length <= limit then value else (value.take (limit - 1)).toString ++ "…"
 
+```
+
+## Flattening nested diagram regions
+
+The source diagram may contain nested regions for loops, branches, and callable bodies,
+but an SVG circuit needs concrete horizontal columns. `DiagramLeaf` pairs each executable
+operation with its nesting depth. `DiagramRegion` remembers the inclusive column span
+occupied by one source region. `DiagramLayout` accumulates both views while assigning the
+next free column.
+
+These are private rendering records rather than additions to the public diagram model:
+the compiler continues to own semantic metadata, while this module owns only its layout.
+
+```lean
 private structure DiagramLeaf where
   operation : DiagramOperation
   depth : Nat
@@ -49,6 +77,17 @@ private structure DiagramLayout where
   nextColumn : Nat := 0
   deriving Inhabited
 
+```
+
+The recursive collection pass is a preorder traversal. Operations consume exactly one
+column. Regions consume however many columns their children require and receive no
+separate operation column of their own. Empty regions therefore produce no outline,
+which avoids zero-width SVG rectangles.
+
+Nested regions are appended after their parent span. Rendering outlines before operations
+later ensures that region decoration stays behind gate glyphs.
+
+```lean
 private partial def collectDiagramItems
     (items : Array DiagramItem) (depth column : Nat) : DiagramLayout :=
   Id.run do
@@ -70,6 +109,21 @@ private partial def collectDiagramItems
           column := nested.nextColumn
     return { leaves, regions, nextColumn := column }
 
+```
+
+## Mapping source operands to display lanes
+
+OpenQASM operands can mention the same qubit more than once, and some compiler metadata
+is deliberately approximate when a target depends on runtime control flow. The following
+helpers normalize exact wire lists, detect approximation, and map source wire indices into
+SVG lanes.
+
+An extra global lane may be inserted at the top for operations such as global phase that
+have no concrete qubit operand. Exact conventional glyphs are permitted only when every
+operand resolves to one in-range source wire; all other cases use the explicit fallback
+box below.
+
+```lean
 private def operationWires (operation : DiagramOperation) : Array Nat :=
   deduplicateWires (operation.operands.foldl (fun wires operand =>
     wires ++ operand.wires) #[])
@@ -95,6 +149,20 @@ private def exactOperandLanes? (operation : DiagramOperation)
     some (operation.operands.map fun operand => globalOffset + operand.wires[0]!)
   else none
 
+```
+
+## Primitive SVG glyphs
+
+Circuit notation is assembled from a deliberately small vocabulary: lines, text,
+positive and negative control circles, controlled-X targets, labeled boxes, and swap
+crosses. Every primitive uses `currentColor` and the editor background variable, allowing
+the infoview theme to control contrast without a separate light/dark palette.
+
+Coordinates are natural numbers because the layout uses a fixed grid. Each operation
+column is 72 units wide and each wire lane is 48 units high; later functions translate
+semantic columns and lanes into those coordinates.
+
+```lean
 private def lineNode (x1 y1 x2 y2 : Nat) (strokeWidth : String := "1")
     (dash : Option String := none) : Html :=
   let dash := dash.map (fun value => #[textAttribute "strokeDasharray" value]) |>.getD #[]
@@ -156,6 +224,20 @@ private def swapNodes (x : Nat) (lanes : Array Nat) (laneY : Nat → Nat) : Arra
     nodes ++ #[lineNode (x - 6) (y - 6) (x + 6) (y + 6) "1.5",
       lineNode (x - 6) (y + 6) (x + 6) (y - 6) "1.5"]) #[]
 
+```
+
+## Accessible operation groups and fallback boxes
+
+Each rendered operation is wrapped in an SVG group with both an `aria-label` and a
+`title`. The visible label can stay compact while hover text and assistive technology
+retain the compiler's complete operation detail.
+
+The fallback glyph is the correctness path, not an error case. It handles ordinary named
+gates, measurements, approximate operands, and any conventional glyph whose exact lane
+shape cannot be established. Dashed borders signal approximation, and measurement
+targets are printed beside the box when present.
+
+```lean
 private def operationGroup (operation : DiagramOperation) (children : Array Html) : Html :=
   svgNode "g" #[textAttribute "aria-label" operation.detail] (
     #[svgNode "title" #[] #[.text operation.detail]] ++ children)
@@ -182,6 +264,21 @@ private def fallbackOperationNodes (operation : DiagramOperation) (centerX : Nat
     textNode centerX (midpoint + 4) (truncateLabel 10 operation.label)
   ] ++ measurementTarget
 
+```
+
+## Conventional controlled and swap notation
+
+The renderer chooses conventional glyphs only after `exactOperandLanes?` proves that the
+operand mapping is exact. It then checks the arity encoded by each glyph:
+
+* controlled X requires one target after all controls;
+* a controlled box requires at least one target;
+* swap requires exactly two targets after all controls.
+
+Any mismatch returns `none`, allowing the caller to fall back to a labeled box instead
+of drawing a plausible but semantically incorrect circuit symbol.
+
+```lean
 private def conventionalOperationNodes (operation : DiagramOperation)
     (centerX sourceWireCount globalOffset : Nat) (laneY : Nat → Nat) :
     Option (Array Html) :=
@@ -215,6 +312,19 @@ private def conventionalOperationNodes (operation : DiagramOperation)
           swapNodes centerX targetLanes laneY
   | _, _ => none
 
+```
+
+## Placing operations and source regions
+
+`operationNode` converts one semantic column into an SVG x-coordinate and one lane into
+a y-coordinate. Barriers use a dashed vertical line across candidate lanes. Every other
+operation first attempts conventional notation and then takes the fallback path.
+
+Region outlines use their previously collected column spans. Increasing nesting depth
+moves the top edge downward slightly and the bottom edge upward, so nested outlines remain
+visually distinguishable without changing operation coordinates.
+
+```lean
 private def operationNode (operation : DiagramOperation) (column : Nat)
     (sourceWireCount globalOffset topMargin : Nat) : Html :=
   let centerX := 120 + 36 + column * 72
@@ -252,6 +362,23 @@ private def regionLabelNode (region : DiagramRegion) : Html :=
   textNode (firstCenter - 36 + 12) (8 + region.depth * 20 + 14)
     (truncateLabel 32 region.label) "11" "start"
 
+```
+
+## Assembling the complete widget
+
+The public renderer handles an empty diagram as text rather than manufacturing an empty
+SVG. For a nonempty diagram it performs four steps:
+
+1. flatten source items into leaves and regions;
+2. decide whether a synthetic global lane is required;
+3. derive canvas dimensions from lane count, column count, and nesting depth;
+4. compose region outlines, wires, operations, and labels in paint order.
+
+The outer scrolling `div` keeps large circuits usable inside a narrow infoview. The SVG
+itself receives an image role and accessible name, while individual operation groups
+provide finer detail.
+
+```lean
 meta def CircuitDiagram.toHtml (diagram : CircuitDiagram) : ProofWidgets.Html :=
   if diagram.wires.isEmpty && diagram.items.isEmpty then
     .text "No quantum operations."
@@ -282,6 +409,13 @@ meta def CircuitDiagram.toHtml (diagram : CircuitDiagram) : ProofWidgets.Html :=
       operationNodes ++ layout.regions.map regionLabelNode)
     svgNode "div" #[("style", json% { overflowX: "auto", padding: "4px 0" })] #[svg]
 
+```
+
+`HtmlEval` is the final integration point for Lean's `#html` command. Evaluation does not
+run the QASM program: it reads only the immutable `CheckedProgramInfo.diagram` generated
+at elaboration time and converts that metadata to HTML.
+
+```lean
 meta instance : ProofWidgets.HtmlEval CheckedProgramInfo where
   eval info := pure info.diagram.toHtml
 
