@@ -200,58 +200,58 @@ qasm! ScheduledMeasurements {
 abbrev TestM := TraceBackend.M
 
 private def runNative :=
-  Id.run ((NativeControl.run (qasmM := TestM) {}) |>.run {})
+  Id.run ((NativeControl.execute (qasmM := TestM) {}) |>.run {})
 
 private def runInput :=
-  Id.run ((NativeInput.run (qasmM := TestM) { value := SInt.ofInt 41 }) |>.run {})
+  Id.run ((NativeInput.execute (qasmM := TestM) { value := SInt.ofInt 41 }) |>.run {})
 
 private def runQuantum :=
-  Id.run ((PortableQuantum.run (qasmM := TestM) {}) |>.run {})
+  Id.run ((PortableQuantum.execute (qasmM := TestM) {}) |>.run {})
 
 private def runSubroutine :=
-  Id.run ((NativeSubroutine.run (qasmM := TestM) {}) |>.run {})
+  Id.run ((NativeSubroutine.execute (qasmM := TestM) {}) |>.run {})
 
 private def runMutableArray :=
-  Id.run ((MutableArrayReference.run (qasmM := TestM) {}) |>.run {})
+  Id.run ((MutableArrayReference.execute (qasmM := TestM) {}) |>.run {})
 
 private def runIncludedFile :=
-  Id.run ((file_program.run (qasmM := TestM) {}) |>.run {})
+  Id.run ((file_program.execute (qasmM := TestM) {}) |>.run {})
 
 private def runArrays :=
-  Id.run ((NativeArrays.run (qasmM := TestM) {}) |>.run {})
+  Id.run ((NativeArrays.execute (qasmM := TestM) {}) |>.run {})
 
 private def runComplex :=
-  Id.run ((NativeComplex.run (qasmM := TestM) {}) |>.run {})
+  Id.run ((NativeComplex.execute (qasmM := TestM) {}) |>.run {})
 
 private def runExtended :=
-  Id.run ((ExtendedSwitch.run (qasmM := TestM) {}) |>.run {})
+  Id.run ((ExtendedSwitch.execute (qasmM := TestM) {}) |>.run {})
 
 private def runDuration :=
-  Id.run ((NativeDuration.run (qasmM := TestM) {}) |>.run {})
+  Id.run ((NativeDuration.execute (qasmM := TestM) {}) |>.run {})
 
 private def typedArrayInput : FixedArray (SInt 8) [2] :=
   ⟨#[SInt.ofInt 20, SInt.ofInt 22], by decide⟩
 
 private def runTypedArrayIO :=
-  Id.run ((TypedArrayIO.run (qasmM := TestM) { values := typedArrayInput }) |>.run {})
+  Id.run ((TypedArrayIO.execute (qasmM := TestM) { values := typedArrayInput }) |>.run {})
 
 private def runArrayCast :=
-  Id.run ((NativeArrayCast.run (qasmM := TestM) {}) |>.run {})
+  Id.run ((NativeArrayCast.execute (qasmM := TestM) {}) |>.run {})
 
 private def runScalarFor :=
-  Id.run ((NativeScalarFor.run (qasmM := TestM) {}) |>.run {})
+  Id.run ((NativeScalarFor.execute (qasmM := TestM) {}) |>.run {})
 
 private def runModifiedUserGate :=
-  Id.run ((ModifiedUserGate.run (qasmM := TestM) {}) |>.run {})
+  Id.run ((ModifiedUserGate.execute (qasmM := TestM) {}) |>.run {})
 
 private def runRecursive :=
-  Id.run ((RecursiveSubroutine.run (qasmM := TestM) {}) |>.run {})
+  Id.run ((RecursiveSubroutine.execute (qasmM := TestM) {}) |>.run {})
 
 private def runIndexedMeasurement :=
-  Id.run ((IndexedMeasurement.run (qasmM := TestM) {}) |>.run {})
+  Id.run ((IndexedMeasurement.execute (qasmM := TestM) {}) |>.run {})
 
 private def runScheduledMeasurements :=
-  Id.run ((ScheduledMeasurements.run (qasmM := TraceBackend.M) {}) |>.run
+  Id.run ((ScheduledMeasurements.execute (qasmM := TraceBackend.M) {}) |>.run
     (TraceBackend.initial #[true, false, true] (.constant false)))
 
 private def testNativeControl : IO Unit := do

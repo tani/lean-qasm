@@ -28,8 +28,8 @@ behavior is never silently guessed.
 `QASM.FixedArray element shape`.  Generated local code uses `QASM.Value` after
 target-aware static type and shape checking.
 
-Direct recursion is emitted as a Lean `partial def`.  Such a program’s generated
-subroutines and `run` require `[Inhabited qasmQubit]`, which supplies Lean’s
+Direct recursion is emitted as a Lean `partial def`. Such a program’s generated
+subroutines and `execute` require `[Inhabited qasmQubit]`, which supplies Lean’s
 partial-definition implementation and does not add a quantum operation.
 
 ## Deliberate backend boundary

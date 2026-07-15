@@ -20,7 +20,7 @@ generation, static diagram construction, and command elaboration.
 Generated code executes classical behavior as ordinary Lean control flow. Only allocation,
 unitaries, measurement, reset, and barriers cross `QuantumBackend`. This division keeps
 programs portable while allowing a caller to choose a trace backend, simulator, or device
-integration at the generated `run` boundary.
+integration at the generated `execute` boundary.
 
 Most helpers below produce Lean source strings rather than constructing syntax trees
 incrementally. That choice makes the emitted program readable in diagnostics and keeps
@@ -1686,7 +1686,7 @@ private def gateCommand
     String.intercalate " " (parameterBinders.toList ++ qubitBinders.toList) ++
     " : qasmM (Except (QASM.RunError qasmError) Unit) := do\n" ++ indent generated
 
-private def runCommand (name : String) (program : Frontend.Program)
+private def executeCommand (name : String) (program : Frontend.Program)
     (analysis : TypeAnalysis) (recursiveProgram : Bool) : String :=
   let outputs := analysis.outputs
   let context : GenerateContext :=
@@ -1695,7 +1695,7 @@ private def runCommand (name : String) (program : Frontend.Program)
   let body := s!"let __qasm_target := {name}.program.target\n" ++
     (if body.isEmpty then outputReturnCode outputs else
       body ++ "\n" ++ outputReturnCode outputs)
-  s!"def {name}.run " ++ backendBinders recursiveProgram ++ s!" (inputs : {name}.Inputs) : " ++
+  s!"def {name}.execute " ++ backendBinders recursiveProgram ++ s!" (inputs : {name}.Inputs) : " ++
   s!"qasmM (Except (QASM.RunError qasmError) {name}.Outputs) := do\n" ++ indent body
 
 ```
@@ -1812,7 +1812,7 @@ private def compileProgram
         elaborateGenerated
           (gateCommand name program.statements gate parameters qubits body)
     | _ => pure ()
-  elaborateGenerated (runCommand name program analysis recursiveProgram)
+  elaborateGenerated (executeCommand name program analysis recursiveProgram)
 
 private unsafe def evalOptions (usingClause : Syntax) : CommandElabM ElabOptions :=
   if usingClause.isNone then pure {} else

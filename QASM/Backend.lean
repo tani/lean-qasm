@@ -98,7 +98,7 @@ defined here succeeds; generated programs can still report their own `RunError` 
 such as an invalid index or shape mismatch.
 
 These abbreviations also make the intended instantiation concise:
-`Example.run (qasmM := TraceBackend.M) inputs`.
+`Example.execute (qasmM := TraceBackend.M) inputs`.
 
 ```lean
 abbrev M := StateM State

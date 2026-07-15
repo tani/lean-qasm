@@ -48,14 +48,14 @@ The command creates:
 - `Example.program : QASM.CheckedProgramInfo`, containing target and source
   metadata plus a static `.diagram`;
 - native Lean functions for QASM `def` and user-defined `gate` declarations;
-- `Example.run`, whose `for`, `if`, `while`, `switch`, `break`, and `continue`
+- `Example.execute`, whose `for`, `if`, `while`, `switch`, `break`, and `continue`
   are generated as Lean control flow.
 
 ```lean
 #check Example.Inputs
 #check Example.Outputs
 #check Example.program
-#check Example.run
+#check Example.execute
 ```
 
 ### Circuit diagrams
@@ -98,7 +98,7 @@ qasm! ExtendedExample {
 ```
 
 The file form resolves its path relative to the current Lean source file. It derives the
-generated namespace from the sanitized file stem: the example below creates `example.run`.
+generated namespace from the sanitized file stem: the example below creates `example.execute`.
 Nested `include` statements are resolved relative to their containing file and then through
 `ElabOptions.includePaths`; `stdgates.inc` is intrinsic.
 
@@ -127,10 +127,10 @@ programs without a device integration:
 
 ```lean
 let (result, trace) := TraceBackend.run
-  (Example.run (qasmM := TraceBackend.M) { limit := SInt.ofInt 41 })
+  (Example.execute (qasmM := TraceBackend.M) { limit := SInt.ofInt 41 })
 
 let (quantumResult, quantumTrace) := TraceBackend.run
-  (Bell.run (qasmM := TraceBackend.M) {})
+  (Bell.execute (qasmM := TraceBackend.M) {})
 ```
 
 `TraceBackend.State.operations` records allocation, unitary, reset, barrier, and
