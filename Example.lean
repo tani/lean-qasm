@@ -16,4 +16,4 @@ qasm! Bell {
 def bellRun :=
   QASM.TraceBackend.run (Bell.execute (qasmM := QASM.TraceBackend.M) {})
 
-#eval bellRun.2.operations
+#eval bellRun.2.allocations
