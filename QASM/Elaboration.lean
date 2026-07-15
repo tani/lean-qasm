@@ -30,6 +30,24 @@ as commands. The canonical IR value is quoted directly as a Lean expression. Thi
 the generated API native and typed without presenting the interpreted program body as
 per-program Lean control flow.
 
+The command elaborator coordinates two distinct times:
+
+```mermaid
+flowchart LR
+    subgraph CompileTime["Lean elaboration time"]
+        Source --> Includes --> Parse --> Semantics --> Typing --> Lowering
+        Lowering --> Program["quoted IR.Program"]
+        Program --> API["generated Inputs / Outputs / execute"]
+    end
+    subgraph RunTime["program execution time"]
+        API --> Interpreter["QASM.Codegen.run"]
+        Interpreter --> Backend["QuantumBackend"]
+    end
+```
+
+Only immutable IR and typed boundary declarations cross from elaboration into runtime;
+frontend state, source cursors, and diagnostics do not.
+
 ```lean
 namespace QASM
 namespace Compiler

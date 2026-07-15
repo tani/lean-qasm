@@ -7,6 +7,20 @@
 
 Lowering assigns stable identifiers before walking bodies, then carries explicit lexical scopes while translating the checked frontend tree.
 
+Lowering state separates the three identity spaces and a stack of lexical environments:
+
+```mermaid
+flowchart TD
+    Context --> Analysis["immutable type analysis"]
+    Context --> Counters["VarId / DeclId / CallableId counters"]
+    Context --> Scopes["lexical scope stack"]
+    Scopes --> Binding
+    Binding --> IRVar["resolved IR variable"]
+```
+
+Monotone allocation gives each fresh variable an ID $v_{n+1}$ with
+$v_{n+1} > v_n$, while scope exit changes visibility but never reuses an identity.
+
 ```lean
 namespace QASM.Lowering
 

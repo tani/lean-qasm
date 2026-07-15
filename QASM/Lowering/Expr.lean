@@ -6,6 +6,23 @@
 
 Checked source expressions become typed IR expressions with resolved identifiers, operators, callables, and literal widths.
 
+The transformation is value-preserving but representation-closing:
+
+```mermaid
+flowchart LR
+    Source["checked source expression"] --> Resolve["resolve IDs, widths, operators"]
+    Resolve --> IR["typed IR expression"]
+    Resolve -->|unsupported target feature| Capability["explicit capability node"]
+```
+
+SI duration literals use a single base unit. For example,
+
+$$
+1\,\mathrm{ns}=10^{-9}\,\mathrm{s},
+\qquad
+1\,\mathrm{\mu s}=10^{-6}\,\mathrm{s}.
+$$
+
 ```lean
 namespace QASM.Lowering
 

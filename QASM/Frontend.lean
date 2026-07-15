@@ -22,6 +22,21 @@ The implementation keeps raw calibration payloads opaque, but parses portable ex
 statements, types, callables, and control flow structurally. That boundary permits backend
 languages to evolve without teaching the portable frontend their internal grammar.
 
+The module boundary is easiest to read as a one-way, pure data pipeline:
+
+```mermaid
+flowchart LR
+    Text["OpenQASM text"] --> Lexer
+    Lexer --> Tokens["spanned tokens"]
+    Tokens --> Parser
+    Parser --> AST["source AST"]
+    AST --> Printer
+    Printer --> Normalized["normalized OpenQASM"]
+```
+
+Parse failures stop the forward path with a positioned error; semantic validity is
+intentionally not represented in this graph.
+
 ```lean
 namespace QASM
 namespace Frontend

@@ -18,6 +18,22 @@ tests, and inspection of generated programs.
 We keep the backend under `QASM.TraceBackend`, while opening `QASM` first so the
 runtime types can be used without repeating their qualifier.
 
+The backend is an effect recorder, not a state-vector simulator:
+
+```mermaid
+sequenceDiagram
+    participant I as IR interpreter
+    participant B as TraceBackend
+    participant S as Trace state
+    I->>B: allocate / apply / measure / reset / barrier
+    B->>S: append structured effect and label
+    S-->>B: deterministic measurement configuration
+    B-->>I: handles, bits, or success
+```
+
+Every backend call updates one chronological trace; no step computes amplitudes or
+probabilities.
+
 ```lean
 namespace QASM
 

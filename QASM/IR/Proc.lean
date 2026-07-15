@@ -11,6 +11,20 @@ Processes represent effects and structured control flow without higher-order syn
 Expressions remain pure; measurement, mutation, allocation, calls, and backend interaction
 occur only through `Op`, while `Proc` determines sequencing and non-local control.
 
+The effect boundary is visible in the tree shape:
+
+```mermaid
+flowchart TD
+    Proc --> Control["sequence / scope / branch / loop"]
+    Proc --> Op
+    Op --> Classical["mutation and calls"]
+    Op --> Quantum["allocation and backend effects"]
+    Expr["pure Expr"] --> Op
+    Expr --> Control
+```
+
+Only `Op` changes state; `Proc` controls when those effects occur.
+
 ```lean
 namespace QASM.IR
 

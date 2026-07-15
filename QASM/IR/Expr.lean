@@ -10,6 +10,18 @@ Expressions contain only resolved identifiers, closed operators and builtins, ex
 types, and target capability markers. Each `Expr` repeats its resolved result type beside
 the recursive node so the interpreter and emitters never rerun source inference.
 
+Expression resolution removes every dependency on mutable frontend context:
+
+```mermaid
+flowchart LR
+    Source["source expression"] --> Infer["type and name resolution"]
+    Infer --> Expr["IR.Expr<br/>type + node + origin"]
+    Expr --> Interpreter
+    Expr --> Emitter
+```
+
+Both consumers therefore agree on the same operator, identifier, and result type.
+
 ```lean
 namespace QASM.IR
 

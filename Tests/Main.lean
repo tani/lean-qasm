@@ -16,6 +16,25 @@ cover backend effects, user declarations, includes, and array-reference writebac
 Metadata and scalar fixtures cover persistent directives, diagrams, codecs, casts, and
 extended syntax. The final group stresses modifiers, recursion, and measurement.
 
+The suite follows the same public route as a user program and asserts at each observable
+boundary:
+
+```mermaid
+flowchart LR
+    Fixtures --> Elaborator
+    Elaborator --> Program["canonical IR"]
+    Program --> Execute["generated execute"]
+    Execute --> Trace["backend trace"]
+    Program --> Emit["canonical emission"]
+    Program --> Diagram["diagram extraction"]
+    Trace --> Assertions
+    Emit --> Assertions
+    Diagram --> Assertions
+```
+
+Failures are attributed to the boundary whose externally visible contract changed, rather
+than to private helper structure.
+
 ## Declarations and execution bindings
 
 `qasm!` emits a persistent canonical program together with typed input, output, and

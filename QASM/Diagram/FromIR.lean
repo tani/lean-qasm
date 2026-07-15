@@ -7,6 +7,22 @@
 
 Diagram extraction walks only the canonical process IR. It assigns stable lanes to allocated and physical qubits, preserves structured control flow as regions, and marks dynamic wire selections as approximate.
 
+Extraction visits structure rather than choosing an execution path:
+
+```mermaid
+flowchart TD
+    Program["IR.Program"] --> Discover["discover wire lanes"]
+    Program --> Walk["walk Proc tree"]
+    Discover --> Diagram["CircuitDiagram"]
+    Walk --> Operations
+    Walk --> Regions["branch and loop regions"]
+    Operations --> Diagram
+    Regions --> Diagram
+```
+
+Consequently both sides of a branch appear once, and a loop body appears once regardless
+of its runtime iteration count.
+
 ```lean
 namespace QASM.Diagram
 

@@ -13,6 +13,19 @@ gates use a closed semantic kind while user gates carry a stable declaration ID;
 display name is retained for emission and diagnostics. `ControlSpec` keeps control
 interface and polarity order together for categorical composition.
 
+A primitive is a typed circuit arrow
+
+$$
+p : I \longrightarrow O,
+$$
+
+with parameters attached as resolved expressions. For a controlled primitive, the number
+of polarities must match the control interface width:
+
+$$
+|\text{polarities}| = |\text{controls}|.
+$$
+
 ```lean
 namespace QASM.IR
 

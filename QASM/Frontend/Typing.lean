@@ -22,6 +22,25 @@ Checking proceeds in dependency order: global constants first, signatures second
 statement bodies. This allows a body to call a declaration that appears later in source
 while still requiring widths and shapes to be compile-time values.
 
+Type analysis closes every dimension before lowering. For a fixed array with shape
+$[n_1,\ldots,n_k]$, the flat element count is
+
+$$
+N = \prod_{i=1}^{k} n_i,
+$$
+
+and every $n_i$ must be a compile-time natural number. The checking order is:
+
+```mermaid
+flowchart LR
+    Constants --> Signatures
+    Signatures --> Bodies
+    Bodies --> Analysis["resolved type analysis"]
+```
+
+Precomputing signatures permits forward callable references without weakening body
+checking.
+
 ```lean
 namespace QASM
 namespace Frontend

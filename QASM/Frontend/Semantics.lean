@@ -22,6 +22,20 @@ This module has its own small semantic `Value` domain. It is not the execution-t
 floating, complex, or timing cases remain explicit instead of silently adopting runtime
 semantics.
 
+One traversal produces independent facts rather than partially lowering the program:
+
+```mermaid
+flowchart LR
+    AST["parsed AST"] --> Walk["semantic traversal"]
+    Walk --> Constants["constant environment"]
+    Walk --> Diagnostics["accumulated diagnostics"]
+    Walk --> Capabilities["required capabilities"]
+    Capabilities --> Elaboration["portable-boundary check"]
+```
+
+This fan-out explains why discovering a target-only feature does not suppress unrelated
+diagnostics.
+
 ```lean
 namespace QASM
 namespace Frontend

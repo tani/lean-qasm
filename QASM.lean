@@ -45,6 +45,27 @@ The order is architectural rather than cosmetic: visualization and runtime remai
 independent of parsing, canonical IR remains independent of Lean elaboration, and only the
 final elaborator joins the frontend, lowering, interpreter, and generated boundary API.
 
+The import graph exposes the same ownership boundaries:
+
+```mermaid
+flowchart TD
+    QASM --> Runtime
+    QASM --> Frontend
+    QASM --> IR["IR.Program / IR.Equiv"]
+    QASM --> Diagram
+    QASM --> Emit
+    QASM --> Elaboration
+    Frontend --> Semantics
+    Semantics --> Typing
+    Typing --> Elaboration
+    IR --> Diagram
+    IR --> Emit
+    Runtime --> Elaboration
+```
+
+Arrows from `QASM` mean public re-export; arrows between subsystems show the principal
+compile-time dependency direction.
+
 ## Why this module declares nothing
 
 An aggregation module should not introduce aliases or duplicate ownership of public

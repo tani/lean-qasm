@@ -9,6 +9,26 @@ portable on the default backend. This standalone audit embeds the relevant sourc
 the parse/check/lower classification is deterministic and performs no filesystem I/O
 during `#eval`.
 
+Each corpus entry follows one classification path:
+
+```mermaid
+flowchart LR
+    Source --> Parse
+    Parse -->|syntax error| ParseRejected
+    Parse -->|AST| Check
+    Check -->|diagnostic| CheckRejected
+    Check -->|analysis| Lower
+    Lower -->|portable program| Lowered
+    Lower -->|capability boundary| Nonportable
+    Lower -->|lowering diagnostic| LoweringRejected
+```
+
+The category counts form a partition of the audited inputs, so with counts $n_i$,
+
+$$
+N_{\mathrm{audited}} = \sum_i n_i.
+$$
+
 ```lean
 open QASM
 

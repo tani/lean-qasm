@@ -6,6 +6,20 @@
 
 Top-level declaration lowering reuses the preassigned declaration and callable identifiers while isolating gate and subroutine lexical scopes.
 
+Preassignment and isolated body scopes keep declaration identity stable:
+
+```mermaid
+flowchart TD
+    Preassigned["preassigned IDs"] --> Constant
+    Preassigned --> Gate
+    Preassigned --> Subroutine
+    Gate --> GateScope["fresh gate scope"]
+    Subroutine --> SubroutineScope["fresh subroutine scope"]
+    IO["input / output"] --> ProgramScope["program body scope"]
+```
+
+Only the program I/O bindings survive into the top-level executable body.
+
 ```lean
 namespace QASM.Lowering
 

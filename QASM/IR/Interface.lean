@@ -7,6 +7,16 @@ Interfaces are ordered lists of quantum and classical wires at categorical circu
 boundaries. Order is semantic: tensor concatenates interfaces and permutations describe
 how positions move, so an interface is deliberately not a set or a width alone.
 
+Sequential order and parallel composition are captured by list structure:
+
+$$
+I \otimes J \;=\; I \mathbin{+\!\!+} J,
+\qquad
+|I \otimes J| = |I| + |J|.
+$$
+
+Thus two interfaces with the same width can still differ by wire order or wire kind.
+
 ```lean
 namespace QASM.IR
 

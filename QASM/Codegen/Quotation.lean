@@ -7,6 +7,19 @@
 
 These metaprogramming-only orphan instances quote ordinary IR data into generated declarations without coupling the IR modules themselves to Lean elaboration APIs.
 
+Quotation crosses only the compile-time persistence boundary:
+
+```mermaid
+flowchart LR
+    IR["in-memory IR.Program"] --> ToExpr
+    ToExpr --> Syntax["Lean expression syntax"]
+    Syntax --> Declaration["generated program declaration"]
+    Declaration --> Runtime["runtime interpreter"]
+```
+
+The instances preserve data constructor-for-constructor; they neither execute nor
+normalize the program.
+
 ```lean
 namespace QASM.Codegen
 

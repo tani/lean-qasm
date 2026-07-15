@@ -9,6 +9,27 @@ This module is the typed runtime interpreter for `QASM.IR.Program`. It evaluates
 expressions, operations, callables, circuits, and structured control flow; parsing and
 frontend ASTs are not part of the execution path.
 
+Execution composes state, structured failure, and backend effects in one explicit monad
+stack:
+
+$$
+\operatorname{ExecM}(m,q,e)
+=
+\operatorname{StateT}(\operatorname{ExecutionState}(q),
+  \operatorname{ExceptT}(\operatorname{RunError}(e),m)).
+$$
+
+The runtime path stays entirely on canonical data:
+
+```mermaid
+flowchart LR
+    Program["IR.Program"] --> Proc
+    Proc --> ExprEval["expression evaluation"]
+    Proc --> Effects["operation evaluation"]
+    Effects --> Backend["QuantumBackend"]
+    Proc --> Flow["next / break / continue / return / end"]
+```
+
 ```lean
 namespace QASM.Codegen
 

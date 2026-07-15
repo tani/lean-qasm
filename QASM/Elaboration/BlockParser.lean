@@ -11,6 +11,23 @@ OpenQASM block without sending its contents through the Lean token grammar.
 The scanner distinguishes strings and both comment forms, so braces inside quoted or
 commented text never terminate the block early.
 
+The scanner is a small state machine whose brace counter changes only in normal mode:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Normal
+    Normal --> String: quote
+    String --> Normal: unescaped quote
+    Normal --> LineComment: double slash
+    LineComment --> Normal: newline
+    Normal --> BlockComment: slash star
+    BlockComment --> Normal: star slash
+    Normal --> Normal: opening or closing brace
+```
+
+If the nested depth before a normal-mode closing brace is $d$, the transition is
+$d \mapsto d-1$ for $d>0$; at $d=0$ that brace terminates the outer `qasm!` body.
+
 ```lean
 namespace QASM
 

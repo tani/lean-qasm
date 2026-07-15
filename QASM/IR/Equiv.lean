@@ -6,6 +6,19 @@
 
 Exact equality retains every byte of metadata. Alpha equality canonicalizes resolved identifiers and removes source-location and source-file identity. Semantic-shape equality additionally removes display-only names and directives while retaining declarations, types, values, control flow, and capability failures.
 
+The three relations form a deliberate implication chain:
+
+$$
+p = q
+\;\Longrightarrow\;
+p \equiv_{\alpha} q
+\;\Longrightarrow\;
+p \equiv_{\mathrm{shape}} q.
+$$
+
+Each step forgets more presentation information while preserving binding, types,
+declarations, values, control flow, and explicit capability failures.
+
 ```lean
 namespace QASM.IR
 

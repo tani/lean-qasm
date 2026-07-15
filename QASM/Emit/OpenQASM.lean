@@ -6,6 +6,20 @@
 
 The emitter reconstructs stable OpenQASM 3.0 from resolved IR. It deliberately ignores source whitespace and locations. Unsupported target capabilities become explicit `pragma qasm_ir_unsupported` statements; unsupported expression positions become conspicuous unresolved calls rather than being silently erased.
 
+Emission performs a deterministic structural fold:
+
+```mermaid
+flowchart LR
+    Program["resolved IR.Program"] --> Names["collect stable display names"]
+    Names --> Render["render declarations and Proc"]
+    Render --> Mode{"emission mode"}
+    Mode -->|self-contained| Expanded["expanded canonical text"]
+    Mode -->|preserve modules| Includes["include-preserving text"]
+```
+
+Because source spacing is absent from IR, canonicalization promises reparsable stability,
+not byte-for-byte recovery of the input.
+
 ```lean
 namespace QASM.Emit.OpenQASM
 

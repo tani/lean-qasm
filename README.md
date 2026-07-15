@@ -5,6 +5,19 @@ type-checks OpenQASM, lowers accepted programs to a canonical `QASM.IR.Program`,
 executes that IR with a portable Lean interpreter. Device behavior remains behind a
 small `QuantumBackend` interface.
 
+```mermaid
+flowchart LR
+    Source["OpenQASM source"] --> Frontend["parse / check"]
+    Frontend --> IR["canonical QASM.IR.Program"]
+    IR --> Execute["QASM.Codegen.run"]
+    Execute --> Backend["QuantumBackend"]
+    IR --> Emit["canonical OpenQASM"]
+    IR --> Diagram["static circuit diagram"]
+```
+
+The canonical IR is the shared boundary: execution, emission, and visualization consume
+the same resolved program instead of rebuilding semantics from source.
+
 ## Build and test
 
 ```sh

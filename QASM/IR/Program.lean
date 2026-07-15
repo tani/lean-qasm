@@ -9,6 +9,22 @@ canonical emitter, diagram extractor, equivalence relations, and generated bound
 all consume this value directly; no downstream pass needs the frontend AST or elaborator
 state.
 
+`Program` is the architectural join point and the only persistent value shared by all
+downstream views:
+
+```mermaid
+flowchart LR
+    Frontend --> Lowering
+    Lowering --> Program["QASM.IR.Program"]
+    Program --> Interpreter
+    Program --> Emitter
+    Program --> Diagram
+    Program --> Equivalence
+```
+
+No arrow returns to the source AST, which keeps execution and rendering independent of
+elaboration state.
+
 ```lean
 namespace QASM.IR
 

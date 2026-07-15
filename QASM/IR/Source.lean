@@ -7,6 +7,15 @@ Source positions are retained as flat, backend-independent metadata on IR nodes.
 spans are valid for synthesized nodes; populated spans use offsets and line/column pairs
 only for diagnostics and never participate in execution.
 
+For a populated span, the positional invariant is
+
+$$
+0 \le \text{startOffset} \le \text{endOffset}.
+$$
+
+Line and column fields refine those offsets for humans; execution observes neither
+representation.
+
 ```lean
 namespace QASM.IR
 

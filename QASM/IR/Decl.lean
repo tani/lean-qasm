@@ -13,6 +13,21 @@ Compilation-unit declarations keep pure gate circuits separate from effectful su
 processes. Each declaration combines stable identity, display metadata, resolved types,
 and origin exactly once; downstream consumers never consult the source AST.
 
+The compilation unit keeps declaration families separate while sharing resolved identity
+and source metadata:
+
+```mermaid
+flowchart TD
+    Metadata["version / target / origins"] --> Program
+    Constants --> Program
+    Gates["pure gate circuits"] --> Program
+    Subroutines["effectful processes"] --> Program
+    IO["inputs / outputs"] --> Program
+```
+
+This separation prevents a gate body from acquiring process effects by representation
+accident.
+
 ```lean
 namespace QASM.IR
 

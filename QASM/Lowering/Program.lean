@@ -6,6 +6,21 @@
 
 The public lowering entry point consumes the checked frontend program and its type analysis, producing the single canonical IR compilation unit.
 
+The final pass partitions source-order statements into persistent program components:
+
+```mermaid
+flowchart LR
+    Checked["checked frontend program"] --> Collect
+    Collect --> Metadata
+    Collect --> Declarations
+    Collect --> Body["ordered Proc body"]
+    Metadata --> Program["QASM.IR.Program"]
+    Declarations --> Program
+    Body --> Program
+```
+
+The partition changes storage layout, not source-relative order within each component.
+
 ```lean
 namespace QASM.Lowering
 

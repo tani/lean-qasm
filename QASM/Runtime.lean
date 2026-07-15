@@ -9,6 +9,27 @@ This module defines the runtime value carrier, backend boundary abstractions,
 gate logs, constant conversion, and array conversion foundations used by the IR interpreter
 and generated boundary wrappers.
 
+The runtime boundary separates portable evaluation from device effects:
+
+```mermaid
+flowchart LR
+    Native["typed Lean inputs"] --> Codec["ValueCodec"]
+    Codec --> Value["QASM.Value"]
+    Value --> Interpreter
+    Interpreter --> Backend["QuantumBackend"]
+    Interpreter --> Result["QASM.Value outputs"]
+    Result --> Codec
+```
+
+For a fixed array of shape $[n_1,\ldots,n_k]$, the codec enforces
+
+$$
+|\text{data}|=\prod_{i=1}^{k} n_i.
+$$
+
+This proof-bearing boundary prevents a flat Lean array with the wrong extent from entering
+execution as a shaped OpenQASM value.
+
 ```lean
 namespace QASM
 

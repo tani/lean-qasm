@@ -9,6 +9,26 @@
 Canonical program IR remains backend-independent. This module is the presentation
 boundary that turns a derived `CircuitDiagram` into SVG for `#html`.
 
+Rendering is a pure presentation pipeline after IR projection:
+
+```mermaid
+flowchart LR
+    Model["CircuitDiagram"] --> Layout["lane and column layout"]
+    Layout --> SVG["typed SVG tree"]
+    SVG --> Html["ProofWidgets.Html"]
+    Html --> Infoview
+```
+
+For wire lane $i$ and operation column $j$, layout uses affine coordinates of the form
+
+$$
+y_i = y_0 + i\,\Delta_y,
+\qquad
+x_j = x_0 + j\,\Delta_x,
+$$
+
+so nested rendering changes grouping without changing wire identity.
+
 ```lean
 namespace QASM
 

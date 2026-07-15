@@ -14,6 +14,22 @@ Structured regions preserve source control flow without choosing a branch or exe
 loop. Gate glyphs refer to runtime control polarity because controlled-unitary semantics
 and their diagram notation must agree on positive and negative controls.
 
+The model is a small tree whose leaves address stable wire lanes:
+
+```mermaid
+classDiagram
+    CircuitDiagram *-- DiagramItem
+    DiagramItem <|-- OperationItem
+    DiagramItem <|-- RegionItem
+    OperationItem --> DiagramOperation
+    DiagramOperation *-- DiagramOperand
+    DiagramOperation --> DiagramGateGlyph
+```
+
+`RegionItem` represents nested control flow, while `OperationItem` is the conceptual
+variant containing one `DiagramOperation`; the Lean encoding uses constructors of the
+single `DiagramItem` inductive.
+
 ```lean
 namespace QASM
 

@@ -14,6 +14,26 @@ The circuit allocates two qubits, applies Hadamard to the first, then entangles 
 with controlled X. Explicit options demonstrate the configuration syntax even though this
 program does not depend on classical target widths or the extended dialect.
 
+At the state-vector level, the intended circuit prepares
+
+$$
+|\Phi^+\rangle
+=
+\operatorname{CNOT}(H\otimes I)|00\rangle
+=
+\frac{|00\rangle+|11\rangle}{\sqrt{2}}.
+$$
+
+LeanQASM itself does not compute this vector; the example checks the structural operations
+delegated to the backend:
+
+```mermaid
+flowchart LR
+    q0["q[0]: |0>"] --> H --> Control["control"]
+    q1["q[1]: |0>"] --> Target["X target"]
+    Control --> Target
+```
+
 ```lean
 qasm! Bell {
   OPENQASM 3.0;

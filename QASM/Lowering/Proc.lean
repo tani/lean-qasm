@@ -6,6 +6,19 @@
 
 Statements lower to explicit first-order process nodes. Effectful measurements nested in expressions are hoisted into preceding operations so measurement never survives as an expression node.
 
+Measurement hoisting converts an effectful expression into an ordered process prefix:
+
+```mermaid
+flowchart LR
+    Nested["expression containing measure"] --> Fresh["fresh temporary"]
+    Fresh --> Measure["Op.measure into temporary"]
+    Measure --> Pure["pure expression referencing temporary"]
+```
+
+If an expression yields prelude operations $p_1,\ldots,p_n$ and pure remainder $e$, the
+lowered order is $p_1;\cdots;p_n;e$. Left-to-right traversal therefore remains observable
+through backend effects.
+
 ```lean
 namespace QASM.Lowering
 

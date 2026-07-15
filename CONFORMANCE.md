@@ -6,6 +6,21 @@ command emits a resolved canonical `QASM.IR.Program` and a typed `execute` wrapp
 that evaluates it with `QASM.Codegen.run`. Target-only behavior is never silently
 guessed.
 
+The support boundary is explicit in the pipeline:
+
+```mermaid
+flowchart LR
+    Grammar["OpenQASM 3.0 grammar"] --> Parsed["source AST"]
+    Parsed --> Checked["semantic and type checks"]
+    Checked --> Portable{"portable semantics?"}
+    Portable -->|yes| IR["QASM.IR.Program"]
+    Portable -->|target required| Diagnostic["capability diagnostic"]
+    IR --> Interpreter["QASM.Codegen.run"]
+    Interpreter --> Backend["QuantumBackend effects"]
+```
+
+“Parsed” therefore does not imply “portable”: only the `yes` branch reaches executable
+canonical IR.
 ## Portable lowering
 
 | Area | Status | Lean mapping |

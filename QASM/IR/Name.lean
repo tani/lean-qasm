@@ -8,6 +8,22 @@ Variables, declarations, and callables use distinct ID types so accidental cross
 lookup is rejected by Lean. Capabilities identify semantics that require a target, and
 control polarity is shared by circuit IR, runtime unitaries, and diagrams.
 
+The identifier spaces remain deliberately disjoint even when their underlying natural
+numbers coincide:
+
+```mermaid
+flowchart LR
+    SourceName["source name"] --> VarId
+    SourceName --> DeclId
+    SourceName --> CallableId
+    VarId --> Values["local values"]
+    DeclId --> Declarations
+    CallableId --> Calls
+```
+
+The arrows show resolution domains, not coercions: no ID kind converts implicitly into
+another.
+
 ```lean
 namespace QASM.IR
 
