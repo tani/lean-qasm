@@ -19,22 +19,25 @@ scanned as a balanced raw block, so nested braces, strings, and comments are not
 as Lean. `using` accepts an ordinary `QASM.ElabOptions` term when configuration is
 needed; omitting it selects the portable OpenQASM 3.0 defaults.
 
+Inline bodies conventionally use two additional spaces relative to the surrounding
+`qasm!` command.
+
 ```lean
 import QASM
 
 open QASM
 
 qasm! Example {
-OPENQASM 3.0;
-input int[32] limit;
-output int[32] result;
-int[32] value = 0;
-for uint i in [0:limit] {
-  if (i == 2) { continue; }
-  value += 1;
-}
-while (value < 5) { value += 1; }
-result = value;
+  OPENQASM 3.0;
+  input int[32] limit;
+  output int[32] result;
+  int[32] value = 0;
+  for uint i in [0:limit] {
+    if (i == 2) { continue; }
+    value += 1;
+  }
+  while (value < 5) { value += 1; }
+  result = value;
 }
 ```
 
@@ -60,11 +63,11 @@ OpenQASM 3.0 is the default; `switch` and `nop` require `.extended`.
 
 ```lean
 qasm! ExtendedExample {
-OPENQASM 3.0;
-output int[32] result;
-switch (1) {
-  case 1 { result = 42; }
-}
+  OPENQASM 3.0;
+  output int[32] result;
+  switch (1) {
+    case 1 { result = 42; }
+  }
 } using {
   target := { intWidth := 32, uintWidth := 32, floatWidth := 64, angleWidth := 64 }
   dialect := .extended
