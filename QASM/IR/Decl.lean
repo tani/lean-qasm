@@ -130,20 +130,6 @@ structure SubroutineDecl where
   origin     : SourceSpan := {}
   deriving Repr, BEq, Inhabited
 
-```
-
-## Lowering configuration snapshot
-
-`TargetConfigOptions` packages the target widths and dialect used for a lowering
-transaction. Persistent `Program` stores the same values directly; this small record is
-useful at APIs that configure lowering before a program exists.
-
-```lean
-structure TargetConfigOptions where
-  target  : TargetConfig := {}
-  dialect : Dialect := .v3_0
-  deriving Repr, BEq, Inhabited
-
 end QASM.IR
 ```
 

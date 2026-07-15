@@ -240,22 +240,19 @@ class QuantumBackend (m : Type u → Type v) (Qubit Error : outParam (Type u)) w
 ## Reporting execution failures
 
 `RunError` separates backend failures from portable execution failures discovered while
-interpreting canonical IR. The interpreter reports invalid indexing, shape and type
-mismatches, uninitialized reads, zero range steps, unsupported widths, and internal
-invariant violations without prescribing a concrete backend error type.
+interpreting canonical IR. The interpreter reports invalid indexing, division by zero,
+invalid casts, uninitialized reads, zero range steps, and internal invariant violations
+without prescribing a concrete backend error type.
 
 ```lean
 
 inductive RunError (backendError : Type u) where
   | backend (error : backendError)
   | indexOutOfBounds (name : String) (index size : Nat)
-  | shapeMismatch (name : String) (expected actual : Array Nat)
   | divisionByZero
   | invalidCast (message : String)
-  | typeMismatch (expected actual : String)
   | uninitializedRead (name : String)
   | rangeStepZero
-  | unsupportedFloatWidth (width : Nat)
   | internal (message : String)
   deriving Repr
 

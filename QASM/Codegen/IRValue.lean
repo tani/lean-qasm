@@ -66,7 +66,6 @@ deriving instance ToExpr for QASM.IR.TypeDecl
 deriving instance ToExpr for QASM.IR.ExternDecl
 deriving instance ToExpr for QASM.IR.GateDecl
 deriving instance ToExpr for QASM.IR.SubroutineDecl
-deriving instance ToExpr for QASM.IR.TargetConfigOptions
 deriving instance ToExpr for QASM.IR.Program
 
 end QASM.Codegen

@@ -214,7 +214,6 @@ private def compoundValue (target source : QASM.Frontend.Expression) (operator :
 private def statementGateCall (modifiers : Array QASM.Frontend.GateModifier) (name : String)
     (parameters : Array QASM.Frontend.Expression) (designator : Option QASM.Frontend.Expression)
     (operands : Array QASM.Frontend.Operand) : LowerM QASM.IR.Proc := do
-  let context ← get
   if designator.isSome then
     pure (.operation (.unsupported .timing s!"timed gate call '{name}'"))
   else

@@ -30,7 +30,6 @@ structure Program where
   body        : Proc := .skip
   deriving Repr, BEq, Inhabited
 
-def Program.exactEq (p q : Program) : Bool := p == q
 
 end QASM.IR
 ```
