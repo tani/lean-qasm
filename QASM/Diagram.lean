@@ -1,5 +1,5 @@
     import LiterateLean
-    import QASM.Runtime
+    import QASM.Diagram.Model
     import ProofWidgets.Component.HtmlDisplay
 
     open scoped LiterateLean ProofWidgets.Jsx

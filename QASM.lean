@@ -1,16 +1,15 @@
     import LiterateLean
     import QASM.Runtime
-    import QASM.Backend
+    import QASM.Runtime.TraceBackend
     import QASM.Diagram
-    import QASM.Source
     import QASM.IR.Program
     import QASM.IR.Equiv
+    import QASM.Diagram.ProgramHtmlEval
     import QASM.Emit
-    import QASM.Instances.ProgramHtmlEval
     import QASM.Frontend
-    import QASM.Semantics
-    import QASM.Typing
-    import QASM.Elab
+    import QASM.Frontend.Semantics
+    import QASM.Frontend.Typing
+    import QASM.Elaboration
 
     open scoped LiterateLean
 
@@ -24,23 +23,26 @@ checking, execution, visualization, and elaboration. Users can therefore start w
 ## Why the imports are ordered
 
 The indented header is executable Literate Lean code. Its order mirrors the dependency
-graph and the two boundaries of the implementation:
+graph and the ownership boundaries expressed by the directory structure:
 
-1. `Runtime` defines classical carriers and `QuantumBackend`; `Backend` provides a
-   deterministic implementation, while `Diagram` defines the backend-independent
-   presentation model.
-2. `Source` captures balanced inline OpenQASM before Lean tokenization.
+1. `Runtime` defines classical carriers and `QuantumBackend`;
+   `Runtime.TraceBackend` provides the deterministic implementation used by examples and
+   tests.
+2. `Diagram.Model` owns backend-independent presentation data, while `Diagram` renders
+   that model without depending on parsing or elaboration.
 3. `IR.Program` defines the canonical compilation unit and `IR.Equiv` defines the
    equality relations used by emitters and round-trip checks.
-4. `Emit` exposes canonical OpenQASM rendering, and `ProgramHtmlEval` derives an HTML
-   diagram from immutable IR without executing it.
-5. `Frontend`, `Semantics`, and `Typing` parse and validate source while preserving the
-   distinction between source syntax and resolved IR.
-6. `Elab` expands includes, lowers checked source to `QASM.IR.Program`, declares typed
-   input/output structures, and emits the `execute` wrapper around `QASM.Codegen.run`.
+4. `Diagram.ProgramHtmlEval` projects immutable IR into diagrams, and `Emit` exposes
+   canonical OpenQASM rendering.
+5. `Frontend`, `Frontend.Semantics`, and `Frontend.Typing` parse and validate source while
+   preserving the distinction between source syntax and resolved IR.
+6. `Elaboration.BlockParser` captures inline OpenQASM before Lean tokenization;
+   `Elaboration` expands includes, lowers checked source to `QASM.IR.Program`, declares
+   typed input/output structures, and emits the `execute` wrapper around
+   `QASM.Codegen.run`.
 
-The order is architectural rather than cosmetic: presentation and runtime types do not
-depend on parsing, canonical IR remains independent of Lean elaboration, and only the
+The order is architectural rather than cosmetic: visualization and runtime remain
+independent of parsing, canonical IR remains independent of Lean elaboration, and only the
 final elaborator joins the frontend, lowering, interpreter, and generated boundary API.
 
 ## Why this module declares nothing

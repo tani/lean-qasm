@@ -34,6 +34,6 @@ After changing LiterateLean structure or prose:
 - Check that every opening fence is paired, headings do not skip levels, no Lean command escaped a fence, and the canonical footer is the final non-whitespace content.
 - Run `lake build QASM lean_qasm_tests`.
 - Run `lake test` when executable behavior or test sources changed.
-- Compile changed files that are outside Lake targets with `lake env lean <file>`. Current standalone roots are `Example.lean` and `LoweringRegression.lean`; any future smoke or scratch module not imported by `QASM.lean` must also be checked directly.
+- Compile changed files that are outside Lake targets with `lake env lean <file>`. Current standalone modules are `Examples/Bell.lean` and `Tests/Lowering.lean`; any future smoke or scratch module not imported by `QASM.lean` must also be checked directly.
 
 A successful build does not excuse malformed Markdown, stale prose, missing standalone checks, or a footer inside executable code.

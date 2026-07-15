@@ -1,13 +1,13 @@
     import LiterateLean
 
     import QASM.Runtime
-    import QASM.Source
+    import QASM.Elaboration.BlockParser
     import QASM.Frontend
-    import QASM.Semantics
-    import QASM.Typing
+    import QASM.Frontend.Semantics
+    import QASM.Frontend.Typing
     import QASM.Lowering.Program
-    import QASM.Codegen.IRValue
-    import QASM.Codegen.Runtime
+    import QASM.Codegen.Quotation
+    import QASM.Codegen.Interpreter
     import Lean.Elab.Eval
 
     open scoped LiterateLean

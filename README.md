@@ -12,6 +12,25 @@ lake build
 lake test
 ```
 
+## Repository layout
+
+Production modules follow the compilation pipeline and keep extensions beside the layer
+they extend:
+
+- `QASM/Frontend/` contains source semantics and type analysis;
+- `QASM/IR/` owns the canonical, resolved program representation;
+- `QASM/Lowering/` translates checked frontend programs into IR;
+- `QASM/Codegen/` quotes and interprets persistent IR;
+- `QASM/Runtime/` contains concrete backend implementations, while `QASM/Runtime.lean`
+  owns the portable value and backend boundary;
+- `QASM/Diagram/` owns the presentation model, IR projection, and HTML integration;
+- `QASM/Emit/` owns canonical OpenQASM serialization;
+- `QASM/Elaboration/` contains Lean command parsing, while `QASM/Elaboration.lean`
+  coordinates the complete compile-time pipeline.
+
+Runnable examples live under `Examples/`; executable and standalone regression modules
+live under `Tests/`. The top-level `QASM.lean` remains the only public aggregation module.
+
 
 ## The `qasm!` interface
 

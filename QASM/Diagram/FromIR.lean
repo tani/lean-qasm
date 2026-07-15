@@ -1,5 +1,5 @@
     import LiterateLean
-    import QASM.Diagram
+    import QASM.Diagram.Model
     import QASM.IR.Program
     open scoped LiterateLean
 

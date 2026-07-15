@@ -2,7 +2,7 @@
 
     import QASM.Runtime
     import QASM.Frontend
-    import QASM.Semantics
+    import QASM.Frontend.Semantics
 
     open scoped LiterateLean
 

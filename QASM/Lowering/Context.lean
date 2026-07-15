@@ -1,5 +1,5 @@
     import LiterateLean
-    import QASM.Typing
+    import QASM.Frontend.Typing
     import QASM.IR.Program
     open scoped LiterateLean
 
