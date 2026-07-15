@@ -1136,8 +1136,9 @@ private def compileProgram
     | _ => pure ()
   elaborateGenerated (runCommand name program analysis recursiveProgram)
 
-private unsafe def evalOptions (stx : Syntax) : CommandElabM ElabOptions :=
-  liftTermElabM <| Term.evalTerm ElabOptions (mkConst ``ElabOptions) stx
+private unsafe def evalOptions (usingClause : Syntax) : CommandElabM ElabOptions :=
+  if usingClause.isNone then pure {} else
+    liftTermElabM <| Term.evalTerm ElabOptions (mkConst ``ElabOptions) usingClause[1]!
 
 private def resolveSourcePath (path : String) : CommandElabM System.FilePath := do
   let leanPath := System.FilePath.mk (← getFileName)
@@ -1158,17 +1159,16 @@ private def programNameFromPath (path : System.FilePath) : CommandElabM String :
 ```
 
 ## The `qasm!` command
-
-The inline and file forms share one command name and both require an ordinary Lean
-`ElabOptions` term after `using`. An empty structure literal selects the portable defaults.
+The inline and file forms share one command name. An optional ordinary Lean
+`ElabOptions` term follows `using`; omission selects the portable defaults.
 
 ```lean
 
 syntax (name := qasmInlineCommand)
-  "qasm!" ident "{" qasmBlock "}" "using" term : command
+  "qasm!" ident "{" qasmBlock "}" ("using" term)? : command
 
 syntax (name := qasmFileCommand)
-  "qasm!" str "using" term : command
+  "qasm!" str ("using" term)? : command
 ```
 
 The command syntax is registered before its elaborators. Inline commands take their
@@ -1178,7 +1178,7 @@ generated namespace explicitly; file commands derive it from the sanitized file 
 @[command_elab qasmInlineCommand]
 meta unsafe def elaborateQasmInline : CommandElab
   | stx => do
-      let options ← evalOptions stx[6]!
+      let options ← evalOptions stx[5]!
       compileProgram stx[1]!.getId.toString "<qasm!>" stx[3]!.getAtomVal options
 
 @[command_elab qasmFileCommand]
@@ -1187,7 +1187,7 @@ meta unsafe def elaborateQasmFile : CommandElab
       let resolved ← resolveSourcePath stx[1]!.isStrLit?.get!
       let source ← try IO.FS.readFile resolved catch error =>
         throwError m!"cannot read OpenQASM source '{resolved}': {error.toMessageData}"
-      let options ← evalOptions stx[3]!
+      let options ← evalOptions stx[2]!
       compileProgram (← programNameFromPath resolved) (toString resolved) source options
 end Compiler
 end QASM

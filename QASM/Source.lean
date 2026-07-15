@@ -5,7 +5,7 @@
 
 # Balanced OpenQASM block parser for `qasm!`
 
-`qasm! Name { ... } using options` uses this low-level parser to extract the inline
+`qasm! Name { ... } [using options]` uses this low-level parser to extract the inline
 OpenQASM block without sending its contents through the Lean token grammar.
 
 The scanner distinguishes strings and both comment forms, so braces inside quoted or

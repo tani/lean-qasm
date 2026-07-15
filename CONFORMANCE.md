@@ -9,7 +9,7 @@ behavior is never silently guessed.
 
 | Area | Status | Lean mapping |
 | --- | --- | --- |
-| Source embedding | Lowered | `qasm! Name { ... } using options` scans QASM as a balanced raw block rather than Lean tokens |
+| Source embedding | Lowered | `qasm! Name { ... } [using options]` scans QASM as a balanced raw block rather than Lean tokens |
 | Grammar audit | Tested | All 21 official 3.0 example programs parse; all 10 official invalid grammar fixtures are rejected |
 | Classical types | Lowered | `bool`, scalar `bit`, `bit[n]`, fixed `int`/`uint`, `float[32/64]`, `angle`, `complex[float[32/64]]`, and SI `duration` |
 | Arrays | Lowered | Rank 1–7 fixed arrays, nested literals, default initialization, indexing, multidimensional slicing, concatenation, array references, `sizeof`, shape-preserving array casts, and typed I/O codecs |

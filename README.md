@@ -16,8 +16,8 @@ lake test
 
 Inline programs name their generated Lean namespace explicitly. The OpenQASM body is
 scanned as a balanced raw block, so nested braces, strings, and comments are not tokenized
-as Lean. `using` is required and accepts an ordinary `QASM.ElabOptions` term; `using {}`
-selects the portable OpenQASM 3.0 defaults.
+as Lean. `using` accepts an ordinary `QASM.ElabOptions` term when configuration is
+needed; omitting it selects the portable OpenQASM 3.0 defaults.
 
 ```lean
 import QASM
@@ -35,7 +35,7 @@ for uint i in [0:limit] {
 }
 while (value < 5) { value += 1; }
 result = value;
-} using {}
+}
 ```
 
 The command creates:
@@ -77,7 +77,7 @@ Nested `include` statements are resolved relative to their containing file and t
 `ElabOptions.includePaths`; `stdgates.inc` is intrinsic.
 
 ```lean
-qasm! "circuits/example.qasm" using {}
+qasm! "circuits/example.qasm"
 ```
 
 ## Backend boundary

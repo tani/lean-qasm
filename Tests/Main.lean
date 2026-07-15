@@ -20,14 +20,14 @@ while (x < 10) {
   if (x == 5) { break; }
 }
 result = x;
-} using {}
+}
 
 qasm! NativeInput {
 OPENQASM 3.0;
 input int[32] value;
 output int[32] result;
 result = value + 1;
-} using {}
+}
 
 qasm! PortableQuantum {
 OPENQASM 3.0;
@@ -47,7 +47,7 @@ barrier q;
 reset q[0];
 c = measure q;
 result = c;
-} using {}
+}
 
 qasm! NativeSubroutine {
 OPENQASM 3.0;
@@ -57,7 +57,7 @@ def bump(int[32] value) -> int[32] {
 }
 output int[32] result;
 result = bump(20) + bump(20);
-} using {}
+}
 
 qasm! MutableArrayReference {
 OPENQASM 3.0;
@@ -69,9 +69,9 @@ output int[32] result;
 array[int[32], 2] values = {0, 0};
 update(values);
 result = values[0] + values[1];
-} using {}
+}
 
-qasm! "Fixtures/Elab/file_program.qasm" using {}
+qasm! "Fixtures/Elab/file_program.qasm"
 
 qasm! NativeArrays {
 OPENQASM 3.0;
@@ -82,14 +82,14 @@ array[int[32], 2, 3] matrix;
 values[0:1] = {20, 22};
 sum = values[0] + values[1];
 second_dimension = sizeof(matrix, 1);
-} using {}
+}
 
 qasm! MetadataProgram {
 OPENQASM 3.0;
 pragma compiler optimize
 @tool.note preserve
 int[32] value = 1;
-} using {}
+}
 
 qasm! NativeComplex {
 OPENQASM 3.0;
@@ -98,7 +98,7 @@ output float[64] imaginary_part;
 complex value = 2.5 + 3.5im;
 real_part = real(value);
 imaginary_part = imag(value);
-} using {}
+}
 
 qasm! ExtendedSwitch {
 OPENQASM 3.0;
@@ -115,21 +115,21 @@ qasm! NativeDuration {
 OPENQASM 3.0;
 output duration elapsed;
 elapsed = 5ns + 2us;
-} using {}
+}
 
 qasm! TypedArrayIO {
 OPENQASM 3.0;
 input array[int[8], 2] values;
 output array[int[8], 2] result;
 result = values;
-} using {}
+}
 
 qasm! NativeArrayCast {
 OPENQASM 3.0;
 output array[uint[8], 2] result;
 array[int[16], 2] values = {20, 22};
 result = array[uint[8], 2](values);
-} using {}
+}
 
 qasm! NativeScalarFor {
 OPENQASM 3.0;
@@ -138,7 +138,7 @@ result = 0.0;
 for float[64] value in {20, 22} {
   result += value;
 }
-} using {}
+}
 
 qasm! ModifiedUserGate {
 OPENQASM 3.0;
@@ -147,7 +147,7 @@ gate pair a, b { h a; x b; }
 qubit[3] q;
 ctrl @ pair q[0], q[1], q[2];
 inv @ pair q[1], q[2];
-} using {}
+}
 
 qasm! RecursiveSubroutine {
 OPENQASM 3.0;
@@ -157,7 +157,7 @@ def factorial(int[32] value) -> int[32] {
 }
 output int[32] result;
 result = factorial(5);
-} using {}
+}
 
 qasm! IndexedMeasurement {
 OPENQASM 3.0;
@@ -167,7 +167,7 @@ bit[2] measured;
 measure q[1] -> measured[0];
 measured[1] = measure q[1];
 result = measured;
-} using {}
+}
 
 structure TestState where
   nextQubit : Nat := 0
