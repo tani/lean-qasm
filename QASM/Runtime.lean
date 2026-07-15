@@ -43,6 +43,16 @@ structure ElabOptions where
   includePaths : Array System.FilePath := #[]
   deriving Inhabited
 
+```
+
+## Classical values and shaped arrays
+
+The public boundary uses distinct Lean types for each OpenQASM scalar family. Widths
+remain in the types where Lean can enforce them, while the array wrappers record the
+shape invariant needed when input and output values cross the generated-program boundary.
+
+```lean
+
 /-- The scalar OpenQASM `bit` type.  It is intentionally distinct from `bit[1]`. -/
 structure Bit where
   value : Bool
@@ -96,6 +106,16 @@ structure NDArray (element : Type u) (rank : Nat) where
   shape : Array Nat
   data : Array element
   rank_eq : shape.size = rank
+
+```
+
+## Portable unitary expressions
+
+Quantum operations are represented as backend-independent data. The standard-gate
+expansion deliberately bottoms out in `U`, global phase, sequencing, and modifiers, so
+backends receive a compact semantic description instead of source-level syntax.
+
+```lean
 
 inductive ControlPolarity where
   | positive
@@ -179,6 +199,15 @@ partial def standard (name : String) (parameters : Array Float) (targets : Array
 
 end Unitary
 
+```
+
+## Broadcasting and the backend boundary
+
+OpenQASM gate operands broadcast lane-wise. Once their widths agree, generated code
+uses the `QuantumBackend` class as its only effectful quantum interface.
+
+```lean
+
 /-- Validates OpenQASM's singleton-or-common-width gate broadcasting rule. -/
 def broadcastWidth (operands : Array (Array qubit)) : Except String Nat := do
   if operands.isEmpty then return 1
@@ -204,6 +233,16 @@ class QuantumBackend (m : Type u → Type v) (Qubit Error : outParam (Type u)) w
   measure : Qubit → m (Except Error Bool)
   reset : Qubit → m (Except Error Unit)
   barrier : Barrier Qubit → m (Except Error Unit)
+
+```
+
+## Recording gates and reporting execution failures
+
+User-defined gates are first recorded with a pure backend. Keeping that recording
+separate from execution makes whole-gate modifiers portable, while `RunError` names the
+failures generated programs may expose independently of a concrete device.
+
+```lean
 
 /-- Failure modes that cannot occur while recording a well-typed gate body. -/
 inductive UnitaryBuilderError where
@@ -238,6 +277,16 @@ inductive RunError (backendError : Type u) where
   | unsupportedFloatWidth (width : Nat)
   | internal (message : String)
   deriving Repr
+
+```
+
+## The internal runtime value
+
+Generated local variables share one compact carrier. The carrier preserves the width
+and shape information needed by OpenQASM operations, then codecs restore precise Lean
+types at the external input and output boundary.
+
+```lean
 
 /--
 Runtime carrier used inside generated native Lean functions.  The elaborator still resolves every
@@ -397,6 +446,16 @@ private def angleBits (width : Nat) (value : Value) : Nat :=
     let wrapped := turns - turns.floor
     let scale := (UInt64.ofNat ((2 : Nat) ^ width)).toFloat
     (wrapped * scale).round.toUInt64.toNat % ((2 : Nat) ^ width)
+
+```
+
+### Casts and scalar arithmetic
+
+Casts normalize values to OpenQASM widths before arithmetic begins. The rewrapping
+helpers then retain the most informative operand representation across unary and binary
+operators.
+
+```lean
 
 def cast (typeName : String) (width : Nat) (value : Value) : Value :=
   match typeName with
@@ -592,6 +651,16 @@ def compound (operator : String) (left right : Value) : Value :=
   else if operator == "~=" then unary "~" right
   else binary base left right
 
+```
+
+### Selection, mutation, and ranges
+
+Indexing is shared by bits and arrays, including negative indices and set-valued
+selectors. Updates mirror selection recursively, and ranges are materialized with the
+inclusive endpoint semantics expected by the source language.
+
+```lean
+
 private def selectBits (bits : Array Bool) (selector : Value) : Value :=
   match selector with
   | .array selectors =>
@@ -697,6 +766,15 @@ def range (start step stop : Value) : Array Value := Id.run do
       current := current + increment
   return values
 
+```
+
+### Mathematical built-ins
+
+These helpers implement the portable classical built-ins. Backend-relative timing and
+other hardware-sensitive operations never enter this table.
+
+```lean
+
 private partial def popcount (value : Nat) : Nat :=
   if value == 0 then 0 else value % 2 + popcount (value / 2)
 
@@ -762,6 +840,15 @@ def builtin (name : String) (arguments : Array Value) : Value :=
 
 end Value
 
+```
+
+## Fixed-width wrapper operations
+
+Small namespaces expose canonical conversions for the scalar wrappers used in generated
+signatures. Signed integers explicitly decode their two's-complement representation.
+
+```lean
+
 namespace UInt
 
 def ofNat (value : Nat) : UInt width := ⟨BitVec.ofNat width value⟩
@@ -795,6 +882,16 @@ def ofNat (value : Nat) : Angle width := ⟨BitVec.ofNat width value⟩
 def toNat (value : Angle width) : Nat := value.bits.toNat
 
 end Angle
+
+```
+
+## Crossing the generated-program boundary
+
+`ValueCodec` is the single conversion protocol between native Lean fields and runtime
+values. Scalar instances validate initialization, while the array instance checks both
+rank and every nested extent before constructing its proof-bearing result.
+
+```lean
 
 /-- Conversion between native generated Lean fields and the compact internal carrier. -/
 class ValueCodec (element : Type u) where
@@ -932,6 +1029,16 @@ instance [ValueCodec element] : ValueCodec (FixedArray element shape) where
       throw s!"expected array shape {shape}, got {flattened.size} scalar elements"
 
 end ValueCodec
+
+```
+
+## Reproducible program metadata
+
+The final records identify source origins and target settings without coupling execution
+to a backend. They are emitted beside every generated program for diagnostics and
+reproducibility.
+
+```lean
 
 structure ProgramOrigin where
   name : String

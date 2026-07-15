@@ -45,6 +45,15 @@ structure Token where
   span : SourceSpan
   deriving Repr, Inhabited, BEq
 
+```
+
+### Cursor mechanics and numeric tokens
+
+The cursor carries both remaining characters and a precise source position. Its helpers
+consume identifiers and the complete OpenQASM numeric forms while preserving the span
+needed for later diagnostics.
+
+```lean
 
 private structure LexCursor where
   rest : List Char
@@ -163,6 +172,16 @@ private def takeNumber (start : SourcePos) (cursor : LexCursor) :
       current := next
     pure (raw, current)
 
+```
+
+### Symbols, comments, strings, and token production
+
+Longest-match symbol recognition avoids ambiguity among compound operators. The main
+lexer then skips comments, validates strings and hardware-qubit tokens, and emits newline
+tokens so statement parsing can retain pragma boundaries.
+
+```lean
+
 private def symbols : List String := [
   "**=", "<<=", ">>=", "->", "++", "**", "||", "&&", "==", "!=",
   ">=", "<=", "+=", "-=", "*=", "/=", "&=", "|=", "~=", "^=", "%=",
@@ -238,6 +257,15 @@ private partial def lexTokens (cursor : LexCursor) (tokens : Array Token := #[])
             lexTokens next (tokens.push ⟨.symbol symbol, ⟨start, next.position⟩⟩)
         | none => throw ⟨start, s!"unexpected character {repr char}"⟩
 
+```
+
+### Lexer entry points
+
+The public lexer is pure. A small Parsec adapter records the implementation model without
+changing the positioned `Except` interface consumed by the grammar parser.
+
+```lean
+
 private abbrev SourceParser := Std.Internal.Parsec.String.Parser
 
 private def tokenStreamParser : SourceParser (Array Token) := fun input =>
@@ -301,6 +329,16 @@ inductive Operand where
   deriving Repr, Inhabited, BEq
 end
 
+```
+
+### Types, arguments, and gate annotations
+
+Type syntax retains unevaluated designators because target widths and constant shapes are
+resolved later. Arguments, modifiers, and annotations are the reusable records attached
+to declarations and gate applications.
+
+```lean
+
 inductive TypeSpec where
   | scalar (name : String) (width : Option Expression := none)
   | array (element : TypeSpec) (dimensions : Array Expression)
@@ -323,6 +361,16 @@ structure Annotation where
   keyword : String
   content : Option String
   deriving Repr, Inhabited, BEq
+
+```
+
+### Statements and complete programs
+
+The statement tree covers declarations, native control flow, quantum instructions,
+callables, timing constructs, annotations, and opaque calibration payloads. A program is
+the optional version declaration followed by this ordered statement sequence.
+
+```lean
 
 inductive Statement where
   | includeFile (filename : String)
@@ -480,6 +528,16 @@ private def currentOperator? : GrammarParser (Option (String × Nat)) := do
   match ← current? with
   | some ⟨.symbol operator, _⟩ => pure ((binaryPrecedence operator).map (operator, ·))
   | _ => pure none
+
+```
+
+### Expressions and balanced payloads
+
+Expression parsing uses precedence climbing, with postfix calls and indices handled in the
+same recursive family. Balanced raw text is collected for calibration regions whose inner
+grammar belongs to a backend-selected language.
+
+```lean
 
 private partial def collectBalancedText (depth : Nat := 1)
     (parts : List String := []) : GrammarParser String := do
@@ -695,6 +753,16 @@ mutual
       pure #[first]
 end
 
+```
+
+### Operands, literals, and source types
+
+Operand selections reuse expression parsing, including multidimensional index groups.
+The same layer parses array literals and all scalar, fixed-array, and array-reference type
+forms before statement parsing assigns them a declaration role.
+
+```lean
+
 private def parseSize? : GrammarParser (Option Expression) := do
   if ← accept "[" then
     let size ← parseExpression
@@ -788,6 +856,16 @@ private partial def parseType : GrammarParser TypeSpec := do
     else pure none
     pure (.scalar name width)
   else failAtCurrent s!"unknown OpenQASM type '{name}'"
+
+```
+
+### Statement grammar
+
+The statement parser dispatches from keywords and lookahead, then recursively parses
+scopes and native `if`, `while`, `for`, and `switch` bodies. Assignment and gate-call
+ambiguity is resolved only after parsing their shared expression prefix.
+
+```lean
 
 private def assignmentOperators : List String :=
   ["=", "+=", "-=", "*=", "/=", "&=", "|=", "~=", "^=", "<<=", ">>=", "%=", "**="]
@@ -1226,6 +1304,14 @@ where
           expect ";"
           pure (.gateCall #[] name parameters none operands)
 
+```
+
+### Program assembly
+
+Once one statement is recognized at a time, the final loop consumes the token stream and
+combines it with the optional version header. These functions form the pure frontend API.
+
+```lean
 
 private partial def parseStatements (statements : Array Statement := #[]) :
     GrammarParser (Array Statement) := do
@@ -1337,6 +1423,17 @@ partial def TypeSpec.toQasm : TypeSpec → String
   | .arrayRef mutable element _ (some count) =>
       let qualifier := if mutable then "mutable" else "readonly"
       s!"{qualifier} array[{element.toQasm}, #dim={count.toQasm}]"
+
+```
+
+### Modifiers and statements
+
+Gate modifiers render as prefixes. Statement rendering then reconstructs normalized
+blocks and source-level native control flow, using local indentation helpers to make nested
+programs readable and reparsable.
+
+```lean
+
 private def GateModifier.toQasm : GateModifier → String
   | .inverse => "inv @ "
   | .power exponent => s!"pow({exponent.toQasm}) @ "
@@ -1446,10 +1543,28 @@ where
       let body := statements.toList.map (fun statement => indent statement.toQasm)
       "{\n" ++ String.intercalate "\n" body ++ "\n}"
 
+```
+
+### Rendering complete programs
+
+A complete rendering prepends the normalized version declaration and preserves statement
+order. This is the round-trip boundary used by diagnostics and conformance tests.
+
+```lean
+
 def Program.toQasm (program : Program) : String :=
   let version := program.version.map (fun v => s!"OPENQASM {v.major}.{v.minor};")
   String.intercalate "\n" (version.toList ++ program.statements.toList.map Statement.toQasm)
 end Frontend
+
+```
+
+## Stable frontend facade
+
+The outer namespace publishes concise aliases and delegates to the implementation namespace,
+keeping downstream imports independent of internal parser organization.
+
+```lean
 
 abbrev ParseError := Frontend.ParseError
 abbrev FileParseError := Frontend.FileParseError

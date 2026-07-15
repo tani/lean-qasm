@@ -5,6 +5,9 @@
 
 # Static semantics for OpenQASM source programs
 
+This pass handles the source-wide rules that are awkward to encode in grammar productions:
+constant evaluation, control-flow placement, and discovery of backend capabilities.
+
 ```lean
 namespace QASM
 namespace Frontend
@@ -60,6 +63,16 @@ private def integerBinary (operator : String) (left right : Int) :
   | ">" => pure (.boolean (left > right))
   | ">=" => pure (.boolean (left >= right))
   | _ => throw ⟨s!"operator '{operator}' is not supported for integers"⟩
+
+```
+
+## Constant expression evaluation
+
+The semantic value domain is intentionally smaller than the runtime carrier. It evaluates
+only source constants needed during checking and reports when floating-point, complex, or
+timing behavior must be deferred to later phases.
+
+```lean
 
 private partial def evalExpression (environment : ValueEnvironment) :
     Expression → Except Diagnostic Value
@@ -222,6 +235,16 @@ private partial def expressionCapabilities
   | _ => capabilities
 end
 
+```
+
+### Type and statement requirements
+
+Types contribute timing requirements through `stretch` and designators, while statements
+combine those requirements with their expressions and operands. This direct layer remains
+non-recursive over statement bodies so traversal policy stays explicit below.
+
+```lean
+
 private partial def typeCapabilities
     (capabilities : Array Capability) (type : TypeSpec) : Array Capability :=
   match type with
@@ -285,6 +308,16 @@ private def directStatementCapabilities
       operands.foldl operandCapabilities (expressionCapabilities capabilities designator)
   | .annotated _ statement => directStatementCapabilities capabilities statement
   | _ => capabilities
+
+```
+
+### Recursive capability collection
+
+Direct requirements are only half the story: nested scopes, callables, branches, and loops
+may introduce further backend needs. This walk accumulates each capability once across the
+complete statement tree.
+
+```lean
 
 private partial def collectCapabilities (statements : Array Statement)
     (initial : Array Capability := #[]) : Array Capability := Id.run do
@@ -369,6 +402,15 @@ def check (program : Program) : Except (Array Diagnostic) CheckedProgram := do
   if diagnostics.isEmpty then
     pure ⟨program, environment, collectCapabilities program.statements⟩
   else throw diagnostics
+
+```
+
+## Public semantic facade
+
+The outer namespace exposes the diagnostic, capability, and checked-program vocabulary
+without leaking the recursive implementation helpers.
+
+```lean
 
 end Frontend
 

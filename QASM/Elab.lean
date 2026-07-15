@@ -46,6 +46,16 @@ private def timingLiteralCode (raw : String) : String :=
       s!"QASM.Value.duration (({number} : Float) * ({scale} : Float))"
   | none => "QASM.Value.unit"
 
+```
+
+## Emitting expression fragments
+
+The first lowering layer renders literals and expression trees as Lean source. Numeric
+normalization, target-sized casts, operand slicing, and assignment updates are expressed
+only through the portable runtime API.
+
+```lean
+
 private partial def expressionCode : Expression → String
   | .literal (.integer raw) =>
       s!"QASM.Value.integerLiteral {leanString raw}"
@@ -183,6 +193,16 @@ private def assignmentCode (target : Expression) (operator : String) (value : Ex
   | _ =>
       "pure ()"
 
+```
+
+## Generated text and lowering state
+
+Indentation and output conversion assemble readable command fragments. A small state
+monad supplies collision-free temporary names, and `GenerateContext` records which source
+bindings are quantum, mutable, or returned by the current generated function.
+
+```lean
+
 private def indent (source : String) (amount : Nat := 2) : String :=
   let indentation := String.ofList (List.replicate amount ' ')
   String.intercalate "\n" (source.splitOn "\n" |>.map fun line => indentation ++ line)
@@ -220,6 +240,16 @@ private structure GenerateContext where
   quantumNames : Array String := #[]
   mutableArguments : Array String := #[]
   returnMode : ReturnMode := .program
+
+```
+
+## Callable arguments and result propagation
+
+These helpers classify source expressions, prepare classical and quantum arguments, and
+write mutable array references back after a call. They also centralize the `Except`
+propagation protocol shared by generated subroutines.
+
+```lean
 
 private def expressionRoot? : Expression → Option String
   | .identifier name => some name
@@ -321,6 +351,16 @@ private def combinePrelude (parts : Array String) : String :=
 private def prependPrelude (prelude code : String) : String :=
   if prelude.isEmpty then code else prelude ++ "\n" ++ code
 
+```
+
+## Effectful expression lowering
+
+Most expressions lower directly, but measurements and subroutine calls need monadic
+preludes. `lowerExpression` returns both that prelude and the resulting value expression so
+statement generation can preserve source evaluation order.
+
+```lean
+
 private partial def lowerExpression (context : GenerateContext) : Expression →
     GenerateM (String × String)
   | expression@(.literal _) | expression@(.identifier _) |
@@ -421,6 +461,16 @@ private def returnValueCode (context : GenerateContext) (value : Option String :
 
 private def returnCode (context : GenerateContext) (value : Option Expression := none) : String :=
   returnValueCode context (value.map expressionCode)
+
+```
+
+## Native statement generation
+
+Statements become Lean `do` code. Source `if`, `while`, `for`, and `switch` constructs map
+to native Lean control flow; quantum effects alone cross `QuantumBackend`, and every
+backend error is lifted into `RunError`.
+
+```lean
 
 mutual
 private partial def statementsCode
@@ -719,6 +769,16 @@ private partial def statementCode (context : GenerateContext) : Statement → Ge
   | .calibrationGrammar _ | .calStatement _ | .defcalStatement _ _ => pure ""
 end
 
+```
+
+## Dialects, structures, and metadata
+
+Before emitting functions, the compiler detects extended-only statements, constructs the
+native input and output structures, and collects annotations and pragmas for reproducible
+program metadata.
+
+```lean
+
 private partial def hasExtendedStatement : Statement → Bool
   | .switchStatement .. | .nopStatement _ => true
   | .scope body | .whileStatement _ body | .forStatement _ _ _ body |
@@ -795,6 +855,16 @@ private def globalConstantBindings (declarations : Array Statement) : Array Stri
     | .constDeclaration _ name value =>
         some s!"let {leanIdentifier name} : QASM.Value := {expressionCode value}"
     | _ => none
+
+```
+
+## Returns and the source call graph
+
+Generated callable bodies need a fallback return only when control may fall through. The
+recursive call-graph walkers inspect every expression and nested statement so directly
+recursive subroutines receive an appropriate Lean definition form and backend constraint.
+
+```lean
 
 private partial def definitelyReturns : Statement → Bool
   | .returnStatement _ | .endStatement => true
@@ -877,6 +947,16 @@ private def hasDirectRecursion (program : Frontend.Program) : Bool :=
     | .defStatement name _ _ body => body.any (statementCalls name)
     | _ => false
 
+```
+
+## Emitting callables, gates, and the runner
+
+Each source subroutine and gate receives a native Lean function. The program runner then
+allocates its boundary structures, executes the lowered top-level statements, and decodes
+all declared outputs.
+
+```lean
+
 private def subroutineCommand
     (namespaceName : String) (declarations : Array Statement)
     (name : String) (arguments : Array ArgumentDefinition) (body : Array Statement)
@@ -943,6 +1023,16 @@ private def runCommand (name : String) (program : Frontend.Program)
   s!"def {name}.run " ++ backendBinders recursiveProgram ++ s!" (inputs : {name}.Inputs) : " ++
   s!"qasmM (Except (QASM.RunError qasmError) {name}.Outputs) := do\n" ++ indent body
 
+```
+
+## Includes and generated Lean commands
+
+Generated source is reparsed as Lean commands and elaborated in the current environment.
+Before that point, semantic capability checks reject backend-dependent programs and include
+expansion resolves nested files with cycle detection and origin hashes.
+
+```lean
+
 private def elaborateGenerated (source : String) : CommandElabM Unit := do
   let stx ← match Parser.runParserCategory (← getEnv) `command source "<generated by qasm%>" with
     | .ok stx => pure stx
@@ -992,6 +1082,16 @@ private partial def expandIncludes
         origins := origins.push (pathName, hash includedText) ++ nestedOrigins
     | other => statements := statements.push other
   pure ({ program with statements }, origins)
+
+```
+
+## The compilation transaction
+
+Compilation validates target widths, parses and expands the source, enforces dialect and
+type rules, then elaborates structures, metadata, declarations, gates, and the runner in
+dependency order. Each generated command is checked by Lean before compilation advances.
+
+```lean
 
 private def compileProgram
     (name origin source : String) (options : ElabOptions) : CommandElabM Unit := do
@@ -1048,6 +1148,16 @@ private unsafe def evalSource (stx : Syntax) : CommandElabM String :=
 private def resolveSourcePath (path : String) : CommandElabM System.FilePath := do
   let leanPath := System.FilePath.mk (← getFileName)
   pure (leanPath.parent.getD "." / path)
+
+```
+
+## Public quotation commands
+
+Three command forms cover inline blocks, existing Lean string terms, and source files.
+Optional `ElabOptions` remain ordinary Lean terms, so target and include-path configuration
+composes naturally with the host language.
+
+```lean
 
 syntax (name := qasmSourceProgramCommand)
   "qasm%" ident "from" term ("using" term)? : command

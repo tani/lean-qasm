@@ -8,6 +8,9 @@
 `qasm% { ... }` performs balanced extraction and constructs the raw
 OpenQASM source string as `qasmRaw`, implemented as a low-level parser.
 
+The scanner distinguishes strings and both comment forms, so braces inside quoted or
+commented text never terminate the quotation early.
+
 ```lean
 namespace QASM
 
@@ -56,6 +59,16 @@ private partial def qasmFindClose (context : ParserContext) (position : String.P
             qasmFindClose context (qasmAdvance context next) depth .normal
           else qasmFindClose context next depth .blockComment
 
+```
+
+## Turning the balanced slice into Lean syntax
+
+After the scanner locates the matching brace, the parser extracts exactly that source
+slice and stores it as one syntax atom. Parenthesizer and formatter hooks preserve the raw
+body rather than attempting to format OpenQASM as Lean.
+
+```lean
+
 private def qasmBlockFn : ParserFn := fun context state => Id.run do
   let opening := state.stxStack.back
   let bodyStart := opening.getTailPos?.getD state.pos
@@ -84,6 +97,16 @@ The raw quotation parser is registered before its syntax expansion.
 ```lean
 syntax (name := qasmQuotation) "qasm%" "{" qasmBlock : term
 syntax (name := qasmFileQuotation) "qasmFile%" str : term
+
+```
+
+### Normalization and macro expansion
+
+The term quotation removes only the structural newline introduced by a conventional
+multiline block. It then expands to an ordinary Lean string literal; file quotations remain
+plain paths and perform no I/O at term elaboration time.
+
+```lean
 
 private def normalizeQasmBlock (source : String) : String :=
   let source := if source.startsWith "\n" then source.drop 1 |>.toString else source

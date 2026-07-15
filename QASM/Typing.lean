@@ -179,6 +179,16 @@ partial def resolveType (target : TargetConfig) (environment : ConstantEnvironme
           let shape ← dimensions.mapM (positiveNat environment "array-reference dimension")
           pure (.arrayRef mutable element (some shape) shape.size)
 
+```
+
+## Emitting resolved types as Lean
+
+Resolution removes target-dependent defaults and evaluates every designator. These two
+renderers then translate only boundary-safe classical types into Lean source, rejecting
+references, qubits, and timing placeholders that require a different execution contract.
+
+```lean
+
 def ResolvedScalar.toLean : ResolvedScalar → Except Diagnostic String
   | .bit none => pure "QASM.Bit"
   | .bit (some width) => pure s!"BitVec {width}"
@@ -202,6 +212,16 @@ def ResolvedType.toLean : ResolvedType → Except Diagnostic String
       pure s!"QASM.FixedArray ({element}) [{String.intercalate ", " (shape.toList.map toString)}]"
   | ResolvedType.arrayRef .. =>
       throw (diagnostic "array-reference types cannot appear in program I/O")
+
+```
+
+## Analysis products
+
+The checker returns explicit descriptions of I/O fields and callable signatures. Keeping
+this summary independent of parser state lets elaboration generate native structures and
+functions without repeating type inference.
+
+```lean
 
 structure IOField where
   name : String
@@ -227,6 +247,16 @@ structure TypeAnalysis where
   callables : Array CallableSignature
   gates : Array GateSignature
   deriving Inhabited
+
+```
+
+## Built-in signatures and lexical scopes
+
+The standard library signatures seed gate checking, while bindings and scope stacks track
+mutability and shadowing. Reserved identifiers are rejected at insertion time so every
+later lookup can assume a legal source name.
+
+```lean
 
 private def standardGates : Array GateSignature := #[
   ⟨"U", 3, 1⟩, ⟨"gphase", 1, 0⟩,
@@ -281,6 +311,16 @@ private def addBinding (scopes : Scopes) (binding : Binding) : Except Diagnostic
       if scope.any (fun existing => existing.name == binding.name) then
         throw (diagnostic s!"duplicate declaration '{binding.name}' in the same scope")
       else pure ((binding :: scope) :: rest)
+
+```
+
+## Compatibility and checking context
+
+OpenQASM permits controlled promotion among numeric types but keeps quantum, array, and
+condition types distinct. The context gathers those rules with callable signatures and
+the current control-flow position.
+
+```lean
 
 private def scalarOf : ResolvedType → Option ResolvedScalar
   | .scalar scalar => some scalar
@@ -364,6 +404,16 @@ private def selectionSize? (constants : ConstantEnvironment) : Expression → Op
       else if first < last then some 0
       else some ((first - last).toNat / increment.natAbs + 1)
   | _ => none
+
+```
+
+## Expression inference
+
+Expression inference follows the source tree recursively and computes a resolved type for
+every literal, operator, selection, call, cast, and measurement. Local helpers share the
+same context for built-ins and gate operands.
+
+```lean
 
 private partial def inferExpression (context : CheckContext) (scopes : Scopes) :
     Expression → Except Diagnostic ResolvedType
@@ -539,6 +589,16 @@ where
           | _ => throw (diagnostic s!"'{name}' is not a gate operand")
         for group in indices do for index in group do let _ ← inferExpression context scopes index
         if indices.isEmpty then pure count else pure 1
+
+```
+
+## Statement and control-flow checking
+
+Statement checking threads lexical scopes through native OpenQASM control flow. It also
+enforces writable targets, loop-only control statements, gate-body restrictions, return
+types, operand arities, and measurement destinations.
+
+```lean
 
 private def assignmentRoot? : Expression → Option String
   | .identifier name => some name
@@ -718,6 +778,15 @@ private partial def checkStatements (context : CheckContext) (initial : Scopes)
         scopes ← checkStatements context scopes #[statement]
   pure scopes
 
+```
+
+## Declaration collection
+
+A first pass evaluates global integer constants; a second gathers callable and gate
+signatures. This ordering makes widths and shapes available before any body is checked.
+
+```lean
+
 private def collectConstants (target : TargetConfig) (program : Program) :
     Except Diagnostic ConstantEnvironment := do
   let mut constants : ConstantEnvironment := []
@@ -776,6 +845,16 @@ private def collectSignatures (target : TargetConfig) (constants : ConstantEnvir
     | _ => pure ()
   pure (callables, gates)
 
+```
+
+## Whole-program analysis
+
+The public pass composes collection, global checking, and isolated body checking. Its
+result is either one complete `TypeAnalysis` or an array-shaped diagnostic interface ready
+for the elaborator.
+
+```lean
+
 /-- Performs target-aware type resolution, scope checking, and arity validation. -/
 def analyzeTypes (target : TargetConfig) (program : Program) :
     Except (Array Diagnostic) TypeAnalysis := do
@@ -827,6 +906,15 @@ def analyzeTypes (target : TargetConfig) (program : Program) :
   | .error error => throw #[error]
 
 end Frontend
+
+```
+
+## Public type-analysis facade
+
+The outer namespace exposes stable aliases and one entry point while leaving checker
+implementation details under `Frontend`.
+
+```lean
 
 abbrev ResolvedQASMType := Frontend.ResolvedType
 abbrev QASMTypeAnalysis := Frontend.TypeAnalysis
