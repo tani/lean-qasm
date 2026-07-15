@@ -3,13 +3,13 @@
 
     open scoped LiterateLean
 
-# OpenQASM quotation parser for `qasm%`
+# Balanced OpenQASM block parser for `qasm!`
 
-`qasm% { ... }` performs balanced extraction and constructs the raw
-OpenQASM source string as `qasmRaw`, implemented as a low-level parser.
+`qasm! Name { ... } using options` uses this low-level parser to extract the inline
+OpenQASM block without sending its contents through the Lean token grammar.
 
 The scanner distinguishes strings and both comment forms, so braces inside quoted or
-commented text never terminate the quotation early.
+commented text never terminate the block early.
 
 ```lean
 namespace QASM
@@ -73,12 +73,12 @@ private def qasmBlockFn : ParserFn := fun context state => Id.run do
   let opening := state.stxStack.back
   let bodyStart := opening.getTailPos?.getD state.pos
   let some bodyStop := qasmFindClose context bodyStart 0 .normal
-    | return state.mkUnexpectedErrorAt "unterminated qasm% block" bodyStart
+    | return state.mkUnexpectedErrorAt "unterminated qasm! block" bodyStart
   let leading := context.mkEmptySubstringAt bodyStart
   let trailing := context.mkEmptySubstringAt bodyStop
   let body := context.extract bodyStart bodyStop
   let atom := mkAtom (.original leading bodyStart trailing bodyStop) body
-  return (state.setPos (qasmAdvance context bodyStop)).pushSyntax atom
+  return (state.setPos bodyStop).pushSyntax atom
 
 def qasmBlock : Parser where
   info := epsilonInfo
@@ -90,47 +90,9 @@ def qasmBlock.parenthesizer := Lean.PrettyPrinter.Parenthesizer.visitToken
 @[combinator_formatter qasmBlock]
 def qasmBlock.formatter := Lean.PrettyPrinter.Formatter.visitAtom Name.anonymous
 
-```
-
-The raw quotation parser is registered before its syntax expansion.
-
-```lean
-syntax (name := qasmQuotation) "qasm%" "{" qasmBlock : term
-syntax (name := qasmFileQuotation) "qasmFile%" str : term
-
-```
-
-### Normalization and macro expansion
-
-The term quotation removes only the structural newline introduced by a conventional
-multiline block. It then expands to an ordinary Lean string literal; file quotations remain
-plain paths and perform no I/O at term elaboration time.
-
-```lean
-
-private def normalizeQasmBlock (source : String) : String :=
-  let source := if source.startsWith "\n" then source.drop 1 |>.toString else source
-  match source.splitOn "\n" |>.reverse with
-  | trailing :: rest =>
-      if trailing.toList.all (fun char => char == ' ' || char == '\t' || char == '\r') then
-        String.intercalate "\n" rest.reverse ++ "\n"
-      else source
-  | [] => source
-
-@[macro qasmQuotation] def expandQasmQuotation : Macro := fun stx => do
-  let some body := stx.getArgs.back?
-    | Macro.throwErrorAt stx "invalid qasm% block"
-  match body with
-  | .atom _ value => pure (Lean.Syntax.mkStrLit (normalizeQasmBlock value))
-  | _ => Macro.throwErrorAt body "invalid qasm% block"
-
-@[macro qasmFileQuotation] def expandQasmFileQuotation : Macro := fun stx => do
-  let some path := stx.getArgs.back?
-    | Macro.throwErrorAt stx "invalid qasmFile% quotation"
-  pure path
-
 end QASM
 ```
+
 
 <!--
 vim: set filetype=markdown :

@@ -12,30 +12,19 @@ lake test
 ```
 
 
-## Quotation interface
+## The `qasm!` interface
 
-Use `qasm% { ... }` for inline OpenQASM source. The quotation is a Lean term of type `String`; nested braces, strings, and comments are preserved. `qasmFile% "path.qasm"` provides a path literal for file-oriented tooling.
-
-```lean
-def source : String := qasm% {
-OPENQASM 3.0;
-if (true) { x; }
-}
-```
-
-## Embedded source and elaboration
-
-`qasm% { ... }` is a raw Lean term of type `String`. The text between
-the delimiter lines is retained verbatim, including comments and indentation,
-and can be stored, transformed, parsed, or passed to a named `qasm%` command.
+Inline programs name their generated Lean namespace explicitly. The OpenQASM body is
+scanned as a balanced raw block, so nested braces, strings, and comments are not tokenized
+as Lean. `using` is required and accepts an ordinary `QASM.ElabOptions` term; `using {}`
+selects the portable OpenQASM 3.0 defaults.
 
 ```lean
 import QASM
 
 open QASM
 
-def source : String :=
-  qasm% {
+qasm! Example {
 OPENQASM 3.0;
 input int[32] limit;
 output int[32] result;
@@ -46,9 +35,7 @@ for uint i in [0:limit] {
 }
 while (value < 5) { value += 1; }
 result = value;
-  }
-
-qasm% Example from source
+} using {}
 ```
 
 The command creates:
@@ -68,24 +55,29 @@ The command creates:
 #check Example.run
 ```
 
-Use `using` for target widths and the opt-in extended dialect. Strict
+Target widths and the opt-in extended dialect are supplied directly after `using`. Strict
 OpenQASM 3.0 is the default; `switch` and `nop` require `.extended`.
 
 ```lean
-def options : QASM.ElabOptions := {
+qasm! ExtendedExample {
+OPENQASM 3.0;
+output int[32] result;
+switch (1) {
+  case 1 { result = 42; }
+}
+} using {
   target := { intWidth := 32, uintWidth := 32, floatWidth := 64, angleWidth := 64 }
   dialect := .extended
 }
-
-qasm% Configured from source using options
 ```
 
-Files are resolved relative to the current Lean source file. Nested QASM
-`include` statements are expanded relative to their containing file and then
-through `ElabOptions.includePaths`. `stdgates.inc` is intrinsic.
+The file form resolves its path relative to the current Lean source file. It derives the
+generated namespace from the sanitized file stem: the example below creates `example.run`.
+Nested `include` statements are resolved relative to their containing file and then through
+`ElabOptions.includePaths`; `stdgates.inc` is intrinsic.
 
 ```lean
-qasmFile% FromFile "circuits/example.qasm"
+qasm! "circuits/example.qasm" using {}
 ```
 
 ## Backend boundary

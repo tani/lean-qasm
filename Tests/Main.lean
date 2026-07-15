@@ -7,8 +7,7 @@ open QASM
 private def assertTrue (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw (IO.userError message)
 
-def nativeSource : String :=
-  qasm% {
+qasm! NativeControl {
 OPENQASM 3.0;
 output int[32] result;
 int[32] x = 0;
@@ -21,22 +20,16 @@ while (x < 10) {
   if (x == 5) { break; }
 }
 result = x;
-  }
+} using {}
 
-qasm% NativeControl from nativeSource
-
-def inputSource : String :=
-  qasm% {
+qasm! NativeInput {
 OPENQASM 3.0;
 input int[32] value;
 output int[32] result;
 result = value + 1;
-  }
+} using {}
 
-qasm% NativeInput from inputSource
-
-def quantumSource : String :=
-  qasm% {
+qasm! PortableQuantum {
 OPENQASM 3.0;
 include "stdgates.inc";
 const int[32] repetitions = 1;
@@ -54,12 +47,9 @@ barrier q;
 reset q[0];
 c = measure q;
 result = c;
-  }
+} using {}
 
-qasm% PortableQuantum from quantumSource
-
-def subroutineSource : String :=
-  qasm% {
+qasm! NativeSubroutine {
 OPENQASM 3.0;
 def bump(int[32] value) -> int[32] {
   value += 1;
@@ -67,12 +57,9 @@ def bump(int[32] value) -> int[32] {
 }
 output int[32] result;
 result = bump(20) + bump(20);
-  }
+} using {}
 
-qasm% NativeSubroutine from subroutineSource
-
-def mutableArraySource : String :=
-  qasm% {
+qasm! MutableArrayReference {
 OPENQASM 3.0;
 def update(mutable array[int[32], 2] values) {
   values[0] = 20;
@@ -82,14 +69,11 @@ output int[32] result;
 array[int[32], 2] values = {0, 0};
 update(values);
 result = values[0] + values[1];
-  }
+} using {}
 
-qasm% MutableArrayReference from mutableArraySource
+qasm! "Fixtures/Elab/file_program.qasm" using {}
 
-qasmFile% IncludedFile "Fixtures/Elab/file_program.qasm"
-
-def arraySource : String :=
-  qasm% {
+qasm! NativeArrays {
 OPENQASM 3.0;
 output int[32] sum;
 output int[32] second_dimension;
@@ -98,34 +82,25 @@ array[int[32], 2, 3] matrix;
 values[0:1] = {20, 22};
 sum = values[0] + values[1];
 second_dimension = sizeof(matrix, 1);
-  }
+} using {}
 
-qasm% NativeArrays from arraySource
-
-def metadataSource : String :=
-  qasm% {
+qasm! MetadataProgram {
 OPENQASM 3.0;
 pragma compiler optimize
 @tool.note preserve
 int[32] value = 1;
-  }
+} using {}
 
-qasm% MetadataProgram from metadataSource
-
-def complexSource : String :=
-  qasm% {
+qasm! NativeComplex {
 OPENQASM 3.0;
 output float[64] real_part;
 output float[64] imaginary_part;
 complex value = 2.5 + 3.5im;
 real_part = real(value);
 imaginary_part = imag(value);
-  }
+} using {}
 
-qasm% NativeComplex from complexSource
-
-def extendedSource : String :=
-  qasm% {
+qasm! ExtendedSwitch {
 OPENQASM 3.0;
 output int[32] result;
 int[32] value = 2;
@@ -134,67 +109,47 @@ switch (value) {
   case 2 { result = 20; }
   default { result = 30; }
 }
-  }
+} using { dialect := .extended }
 
-def extendedOptions : ElabOptions := { dialect := .extended }
-
-qasm% ExtendedSwitch from extendedSource using extendedOptions
-
-def durationSource : String :=
-  qasm% {
+qasm! NativeDuration {
 OPENQASM 3.0;
 output duration elapsed;
 elapsed = 5ns + 2us;
-  }
+} using {}
 
-qasm% NativeDuration from durationSource
-
-def typedArrayIOSource : String :=
-  qasm% {
+qasm! TypedArrayIO {
 OPENQASM 3.0;
 input array[int[8], 2] values;
 output array[int[8], 2] result;
 result = values;
-  }
+} using {}
 
-qasm% TypedArrayIO from typedArrayIOSource
-
-def arrayCastSource : String :=
-  qasm% {
+qasm! NativeArrayCast {
 OPENQASM 3.0;
 output array[uint[8], 2] result;
 array[int[16], 2] values = {20, 22};
 result = array[uint[8], 2](values);
-  }
+} using {}
 
-qasm% NativeArrayCast from arrayCastSource
-
-def scalarForSource : String :=
-  qasm% {
+qasm! NativeScalarFor {
 OPENQASM 3.0;
 output float[64] result;
 result = 0.0;
 for float[64] value in {20, 22} {
   result += value;
 }
-  }
+} using {}
 
-qasm% NativeScalarFor from scalarForSource
-
-def modifiedUserGateSource : String :=
-  qasm% {
+qasm! ModifiedUserGate {
 OPENQASM 3.0;
 include "stdgates.inc";
 gate pair a, b { h a; x b; }
 qubit[3] q;
 ctrl @ pair q[0], q[1], q[2];
 inv @ pair q[1], q[2];
-  }
+} using {}
 
-qasm% ModifiedUserGate from modifiedUserGateSource
-
-def recursiveSource : String :=
-  qasm% {
+qasm! RecursiveSubroutine {
 OPENQASM 3.0;
 def factorial(int[32] value) -> int[32] {
   if (value <= 1) { return 1; }
@@ -202,12 +157,9 @@ def factorial(int[32] value) -> int[32] {
 }
 output int[32] result;
 result = factorial(5);
-  }
+} using {}
 
-qasm% RecursiveSubroutine from recursiveSource
-
-def indexedMeasurementSource : String :=
-  qasm% {
+qasm! IndexedMeasurement {
 OPENQASM 3.0;
 output bit[2] result;
 qubit[2] q;
@@ -215,9 +167,7 @@ bit[2] measured;
 measure q[1] -> measured[0];
 measured[1] = measure q[1];
 result = measured;
-  }
-
-qasm% IndexedMeasurement from indexedMeasurementSource
+} using {}
 
 structure TestState where
   nextQubit : Nat := 0
@@ -272,7 +222,7 @@ private def runMutableArray :=
   Id.run ((MutableArrayReference.run (qasmM := TestM) {}) |>.run {})
 
 private def runIncludedFile :=
-  Id.run ((IncludedFile.run (qasmM := TestM) {}) |>.run {})
+  Id.run ((file_program.run (qasmM := TestM) {}) |>.run {})
 
 private def runArrays :=
   Id.run ((NativeArrays.run (qasmM := TestM) {}) |>.run {})
@@ -306,23 +256,6 @@ private def runRecursive :=
 
 private def runIndexedMeasurement :=
   Id.run ((IndexedMeasurement.run (qasmM := TestM) {}) |>.run {})
-
-private def testRawSource : IO Unit := do
-  let expected :=
-    "OPENQASM 3.0;\n" ++
-    "output int[32] result;\n" ++
-    "int[32] x = 0;\n" ++
-    "for uint i in [0:3] {\n" ++
-    "  if (i == 2) { continue; }\n" ++
-    "  x += 1;\n" ++
-    "}\n" ++
-    "while (x < 10) {\n" ++
-    "  x += 1;\n" ++
-    "  if (x == 5) { break; }\n" ++
-    "}\n" ++
-    "result = x;\n"
-  assertTrue (nativeSource == expected)
-    "qasm% must preserve the raw OpenQASM source"
 
 private def testNativeControl : IO Unit := do
   match runNative.1 with
@@ -376,7 +309,7 @@ private def testFileAndInclude : IO Unit := do
         "included file measurement output mismatch"
   assertTrue (runIncludedFile.2.operations.contains "sequence")
     "relative include gate was not resolved and transpiled"
-  assertTrue (IncludedFile.program.origins.size == 2)
+  assertTrue (file_program.program.origins.size == 2)
     "root and recursively expanded include origins were not retained"
 
 private def testArrays : IO Unit := do
@@ -561,7 +494,6 @@ private def testOfficialInvalidFixtures : IO Unit := do
       String.intercalate "\n" accepted.toList))
 
 def run : IO Unit := do
-  testRawSource
   testNativeControl
   testInput
   testQuantumBackend

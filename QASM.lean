@@ -16,7 +16,7 @@ from `QASM.Runtime` through `QASM.Elab`.
 ## Imported layers
 
 The indented header is executable Literate Lean code. Import order follows the compiler
-pipeline: runtime contracts and quotations first, then parsing, semantics, typing, and
+pipeline: runtime contracts and block parsing first, then parsing, semantics, typing, and
 finally command elaboration. No additional declarations are needed at this aggregation
 layer.
 
