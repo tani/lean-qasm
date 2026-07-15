@@ -18,7 +18,7 @@ elaboration can later compare the collected requirements with the backend-indepe
 subset it supports.
 
 This module has its own small semantic `Value` domain. It is not the execution-time
-`QASM.Value`: constants are evaluated before generated runtime code exists, and unsupported
+`QASM.Value`: constants are evaluated before canonical IR exists, and unsupported
 floating, complex, or timing cases remain explicit instead of silently adopting runtime
 semantics.
 
@@ -64,7 +64,7 @@ private def bitsOfString (value : String) : Except Diagnostic (Array Bool) := do
 
 ```
 
-### Primitive constant operations
+## Primitive constant operations
 
 The environment is a lexical list because constant declarations are processed in source
 order and lookup should prefer the most recent binding. Literal helpers remove permitted
@@ -73,7 +73,7 @@ separators while preserving explicit failures for unsupported spellings.
 `integerBinary` is the closed arithmetic vocabulary available during this semantic pass.
 Division and remainder detect zero locally, comparisons return semantic booleans, and
 unknown operators produce diagnostics. More general numeric behavior is deferred until
-typing has resolved the operand family and generated runtime code can preserve widths.
+typing has resolved the operand family and the IR interpreter can preserve widths.
 
 ```lean
 private def integerBinary (operator : String) (left right : Int) :

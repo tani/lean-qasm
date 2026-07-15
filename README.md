@@ -1,8 +1,9 @@
 # LeanQASM
 
-LeanQASM is a compile-time OpenQASM 3.0 to Lean 4 elaborator. It parses the
-OpenQASM grammar, emits native Lean definitions for the portable language, and
-keeps device behavior behind a small `QuantumBackend` interface.
+LeanQASM is a compile-time OpenQASM 3.0 frontend embedded in Lean 4. It parses and
+type-checks OpenQASM, lowers accepted programs to a canonical `QASM.IR.Program`, and
+executes that IR with a portable Lean interpreter. Device behavior remains behind a
+small `QuantumBackend` interface.
 
 ## Build and test
 
@@ -45,11 +46,11 @@ The command creates:
 
 - `Example.Inputs` and `Example.Outputs`, with native typed fields such as
   `QASM.SInt 32`, `BitVec n`, `Float`, or `QASM.FixedArray element shape`;
-- `Example.program : QASM.CheckedProgramInfo`, containing target and source
-  metadata plus a static `.diagram`;
-- native Lean functions for QASM `def` and user-defined `gate` declarations;
-- `Example.execute`, whose `for`, `if`, `while`, `switch`, `break`, and `continue`
-  are generated as Lean control flow.
+- `Example.program : QASM.IR.Program`, containing resolved types and identifiers,
+  structured control flow, callable and gate declarations, target settings, and source
+  metadata;
+- `Example.execute`, a typed boundary wrapper that encodes inputs, evaluates
+  `Example.program` through `QASM.Codegen.run`, and decodes outputs.
 
 ```lean
 #check Example.Inputs
@@ -58,10 +59,15 @@ The command creates:
 #check Example.execute
 ```
 
+`Example.program` is executable data rather than generated per-program Lean control flow.
+For example, `#print Example.program` shows OpenQASM `if` and `for` statements as
+`QASM.IR.Proc.branch` and `QASM.IR.Proc.forLoop`; `#print Example.execute` shows the
+interpreter wrapper.
+
 ### Circuit diagrams
 
-`#html Example.program` renders the program's static circuit diagram in the Lean
-infoview. For example:
+`#html Example.program` derives and renders a static circuit diagram from the canonical
+IR in the Lean infoview. For example:
 
 ```lean
 qasm! Bell {
@@ -108,7 +114,7 @@ qasm! "circuits/example.qasm"
 
 ## Backend boundary
 
-Generated programs are polymorphic over a monad, qubit representation, and
+Generated `execute` wrappers are polymorphic over a monad, qubit representation, and
 backend error type:
 
 ```lean
@@ -138,22 +144,23 @@ measurement labels. `TraceBackend.initial #[...]` supplies deterministic
 measurement outcomes. The backend records execution effects; it does not model
 physical quantum state.
 
-Qubit allocation, gates and modifiers, measurement, reset, and barriers are
-delegated through this interface. Classical expressions, arrays and slices,
-subroutines, aliases, casts, complex values, ranges, and structured control
-flow remain portable generated Lean code.
+While interpreting the canonical IR, qubit allocation, gates and modifiers, measurement,
+reset, and barriers are delegated through this interface. Classical expressions, arrays
+and slices, subroutines, aliases, casts, complex values, ranges, and structured control
+flow are evaluated by `QASM.Codegen.run`.
 
 OpenQASM features whose meaning is explicitly backend-dependent are parsed and
 represented by the frontend, but portable elaboration rejects them with a
 compile-time diagnostic. These are `extern`, calibration/OpenPulse,
 target-relative timing (`dt`, `delay`, designators, `durationof`, `stretch`),
 and physical `$n` qubits. SI duration literals and classical duration arithmetic
-remain portable. Pragmas and annotations are retained in `CheckedProgramInfo`.
+remain portable. Pragmas and annotations are retained in `QASM.IR.Program`.
 
 User gates, including modified user gates, are lowered to backend-independent
-`Unitary` trees. The intrinsic standard library is enabled by
-`include "stdgates.inc";` and is decomposed to `U`, `gphase`, sequences, and
-modifiers rather than delegated as opaque target gate names.
+`QASM.IR.Circuit` values. During execution the interpreter resolves those circuits into
+`Unitary` trees. The intrinsic standard library is enabled by `include "stdgates.inc";`
+and resolves to `U`, `gphase`, sequences, and modifiers rather than opaque target gate
+names.
 
 ## Standalone frontend
 

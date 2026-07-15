@@ -6,8 +6,8 @@
 
 # Static circuit diagrams
 
-The generated program metadata remains backend-independent. This module is the sole
-presentation boundary: it turns that immutable data into an SVG for `#html`.
+Canonical program IR remains backend-independent. This module is the presentation
+boundary that turns a derived `CircuitDiagram` into SVG for `#html`.
 
 ```lean
 namespace QASM
@@ -408,16 +408,6 @@ meta def CircuitDiagram.toHtml (diagram : CircuitDiagram) : ProofWidgets.Html :=
     ] ((layout.regions.map (regionOutlineNode · svgHeight)) ++ wireNodes.flatten ++
       operationNodes ++ layout.regions.map regionLabelNode)
     svgNode "div" #[("style", json% { overflowX: "auto", padding: "4px 0" })] #[svg]
-
-```
-
-`HtmlEval` is the final integration point for Lean's `#html` command. Evaluation does not
-run the QASM program: it reads only the immutable `CheckedProgramInfo.diagram` generated
-at elaboration time and converts that metadata to HTML.
-
-```lean
-meta instance : ProofWidgets.HtmlEval CheckedProgramInfo where
-  eval info := pure info.diagram.toHtml
 
 end
 end QASM

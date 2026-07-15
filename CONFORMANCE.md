@@ -2,8 +2,9 @@
 
 LeanQASM targets the official `spec/v3.0.0` grammar. “Parsed” below means the
 standalone frontend has an AST node for the construct. “Lowered” means the `qasm!`
-command emits executable portable Lean from inline blocks or source files. Target-only
-behavior is never silently guessed.
+command emits a resolved canonical `QASM.IR.Program` and a typed `execute` wrapper
+that evaluates it with `QASM.Codegen.run`. Target-only behavior is never silently
+guessed.
 
 ## Portable lowering
 
@@ -15,22 +16,22 @@ behavior is never silently guessed.
 | Arrays | Lowered | Rank 1–7 fixed arrays, nested literals, default initialization, indexing, multidimensional slicing, concatenation, array references, `sizeof`, shape-preserving array casts, and typed I/O codecs |
 | Expressions | Lowered | Numeric/Boolean/bitwise operators, fixed-width casts, complex arithmetic, ranges and sets, constants, and the OpenQASM builtins represented by the 3.0 grammar |
 | Declarations and I/O | Lowered | Classical/quantum declarations, old-style `qreg`/`creg`, constants, aliases, typed `input`/`output`, scopes, assignment, and measurement assignment including indexed targets |
-| Control flow | Native Lean | QASM `for`, `if`, `while`, `break`, `continue`, and `end`; iterator values are converted to the declared scalar type |
-| Subroutines | Native Lean | `def`, scalar/qubit arguments, readonly/mutable array references with writeback, nested calls in expressions, return/measurement return, and direct recursion |
-| Gates | Portable IR | `U`, `gphase`, intrinsic `stdgates.inc`, user gates, register broadcasting, and `inv`/`pow`/`ctrl`/`negctrl`; modified user gates are recorded as a `Unitary.sequence` before wrapping |
-| Quantum instructions | Backend interface | Allocation, unitary application, measurement, reset, and barrier use `QuantumBackend`; their surrounding program remains portable Lean |
+| Control flow | Portable IR | QASM `for`, `if`, `while`, `break`, `continue`, and `end` lower to `QASM.IR.Proc` nodes interpreted by `QASM.Codegen.run`; iterator values are converted to the declared scalar type |
+| Subroutines | Portable IR | `def`, scalar/qubit arguments, readonly/mutable array references with writeback, nested calls in expressions, return/measurement return, and direct recursion are retained as resolved IR declarations and calls |
+| Gates | Portable IR | `U`, `gphase`, intrinsic `stdgates.inc`, user gates, register broadcasting, and `inv`/`pow`/`ctrl`/`negctrl` lower to `QASM.IR.Circuit`; the interpreter constructs backend-facing `Unitary` trees |
+| Quantum instructions | Backend interface | The IR interpreter delegates allocation, unitary application, measurement, reset, and barrier to `QuantumBackend` |
 | Includes | Lowered | Inline and file source, recursive relative includes, search paths, cycle diagnostics, `stdgates.inc`, and digest metadata for every source origin |
-| Directives | Retained | Pragmas and annotations are stored in `CheckedProgramInfo`; their implementation-defined meaning is not interpreted |
+| Directives | Retained | Pragmas and annotations are stored in `QASM.IR.Program`; their implementation-defined meaning is not interpreted |
 | Post-3.0 syntax | Opt-in | `switch` and `nop` lower only with `Dialect.extended`; strict `Dialect.v3_0` is the default |
 
 `Inputs` and `Outputs` use native Lean boundary types such as `QASM.SInt 32`,
 `BitVec n`, `Float`, `QASM.ComplexN 64`, and
-`QASM.FixedArray element shape`.  Generated local code uses `QASM.Value` after
-target-aware static type and shape checking.
+`QASM.FixedArray element shape`. The interpreter stores local classical values as
+`QASM.Value` after target-aware static type and shape checking.
 
-Direct recursion is emitted as a Lean `partial def`. Such a program’s generated
-subroutines and `execute` require `[Inhabited qasmQubit]`, which supplies Lean’s
-partial-definition implementation and does not add a quantum operation.
+Direct recursion is represented by recursive IR calls and handled by the interpreter.
+It does not emit per-subroutine Lean `partial def` declarations or add an
+`[Inhabited qasmQubit]` requirement to the generated `execute` wrapper.
 
 ## Deliberate backend boundary
 

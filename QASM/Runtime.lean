@@ -6,7 +6,8 @@
 # Portable OpenQASM runtime model and value carrier
 
 This module defines the runtime value carrier, backend boundary abstractions,
-gate logs, constant conversion, and array conversion foundations used by generated code from `elab`.
+gate logs, constant conversion, and array conversion foundations used by the IR interpreter
+and generated boundary wrappers.
 
 ```lean
 namespace QASM
@@ -111,9 +112,9 @@ structure NDArray (element : Type u) (rank : Nat) where
 
 ## Portable unitary expressions
 
-Quantum operations are represented as backend-independent data. The standard-gate
-expansion deliberately bottoms out in `U`, global phase, sequencing, and modifiers, so
-backends receive a compact semantic description instead of source-level syntax.
+Quantum operations are represented as backend-independent data. During IR execution,
+standard gates resolve to `U`, global phase, sequencing, and modifiers, so backends receive
+a compact semantic description instead of source-level syntax.
 
 ```lean
 
@@ -122,7 +123,7 @@ inductive ControlPolarity where
   | negative
   deriving Repr, Inhabited, BEq
 
-/-- Backend-independent unitary syntax produced by native Lean gate functions. -/
+/-- Backend-independent unitary syntax produced while interpreting canonical circuit IR. -/
 inductive Unitary (qubit : Type u) where
   | U (theta phi lambda : Float) (target : qubit)
   | gphase (gamma : Float)
@@ -203,7 +204,7 @@ end Unitary
 
 ## Broadcasting and the backend boundary
 
-OpenQASM gate operands broadcast lane-wise. Once their widths agree, generated code
+OpenQASM gate operands broadcast lane-wise. Once their widths agree, the IR interpreter
 uses the `QuantumBackend` class as its only effectful quantum interface.
 
 ```lean
@@ -236,34 +237,14 @@ class QuantumBackend (m : Type u → Type v) (Qubit Error : outParam (Type u)) w
 
 ```
 
-## Recording gates and reporting execution failures
+## Reporting execution failures
 
-User-defined gates are first recorded with a pure backend. Keeping that recording
-separate from execution makes whole-gate modifiers portable, while `RunError` names the
-failures generated programs may expose independently of a concrete device.
+`RunError` separates backend failures from portable execution failures discovered while
+interpreting canonical IR. The interpreter reports invalid indexing, shape and type
+mismatches, uninitialized reads, zero range steps, unsupported widths, and internal
+invariant violations without prescribing a concrete backend error type.
 
 ```lean
-
-/-- Failure modes that cannot occur while recording a well-typed gate body. -/
-inductive UnitaryBuilderError where
-  | nonUnitaryOperation (operation : String)
-  deriving Repr, Inhabited
-
-/--
-A pure backend used by generated code to turn a user-defined gate invocation into portable
-`Unitary` syntax.  This lets modifiers apply to the complete user gate instead of losing its
-definition behind a backend-specific name.
--/
-abbrev UnitaryBuilder (qubit : Type) := StateM (Array (Unitary qubit))
-
-instance : QuantumBackend (UnitaryBuilder qubit) qubit UnitaryBuilderError where
-  allocate _ := pure (.error (.nonUnitaryOperation "qubit allocation in a gate"))
-  apply operation := do
-    modify (·.push operation)
-    pure (.ok ())
-  measure _ := pure (.error (.nonUnitaryOperation "measurement in a gate"))
-  reset _ := pure (.error (.nonUnitaryOperation "reset in a gate"))
-  barrier _ := pure (.error (.nonUnitaryOperation "barrier in a modified gate"))
 
 inductive RunError (backendError : Type u) where
   | backend (error : backendError)
@@ -280,18 +261,18 @@ inductive RunError (backendError : Type u) where
 
 ```
 
-## The internal runtime value
+## The interpreter's runtime value
 
-Generated local variables share one compact carrier. The carrier preserves the width
-and shape information needed by OpenQASM operations, then codecs restore precise Lean
-types at the external input and output boundary.
+The IR interpreter stores local classical variables in one compact carrier. The carrier
+preserves the width and shape information needed by OpenQASM operations, then codecs
+restore precise Lean types at the external input and output boundary.
 
 ```lean
 
 /--
-Runtime carrier used inside generated native Lean functions.  The elaborator still resolves every
-operator before emitting code; this carrier keeps generated local declarations compact while
-retaining OpenQASM's fixed-width metadata at the program boundary.
+Runtime carrier used in the canonical IR interpreter. Static analysis and lowering resolve
+each operator before execution; this carrier represents the interpreter's local classical
+environment while retaining fixed-width and shape metadata.
 -/
 inductive Value where
   | bit (value : Bool)
@@ -316,8 +297,8 @@ inductive Value where
 ### Interpreting the runtime carrier
 
 `Value` is intentionally broader than any one OpenQASM source type. It is the common
-carrier used inside generated functions, so it must represent typed scalars, nested
-arrays, an uninitialized declaration, and the absence of an expression result.
+carrier used by the interpreter, so it must represent typed scalars, nested arrays, an
+uninitialized declaration, and the absence of an expression result.
 
 The `Value` namespace begins with literal parsing and projection functions. Projections
 such as `truthy`, `asInt`, and `asFloat` define the coercions used only after the typing
@@ -509,8 +490,8 @@ partial def castArray (typeName : String) (width : Nat) (shape : List Nat)
 ### Array construction and result representation
 
 Scalar casts and shaped array casts share the same normalization rules. A shape mismatch
-produces `.unit`, which the generated runner later turns into a structured runtime error
-at the boundary rather than constructing a malformed proof-bearing array.
+produces `.unit`, which the IR executor later turns into a structured runtime error at the
+boundary rather than constructing a malformed proof-bearing array.
 
 `asArray` gives scalar operations a singleton view when broadcasting is allowed, and
 `replicateShape` builds nested defaults for local declarations. The rewrapping helpers
@@ -573,7 +554,7 @@ precision only when both operands permit it, and complex arithmetic keeps real a
 imaginary components together.
 
 Unknown operator strings conservatively return `.unit` or the unchanged value according
-to the operation family; generated code emits only the supported names.
+to the operation family; lowering emits only the supported operators into canonical IR.
 
 ```lean
 def unary (operator : String) (value : Value) : Value :=
@@ -779,8 +760,8 @@ private def restoreBits (template : Value) (bits : Array Bool) : Value :=
 
 `setIndex` mirrors `index` structurally. It descends through nested arrays until the final
 selector, updates only the selected element or bit, and rebuilds every enclosing array on
-the way out. Out-of-range positions leave the value unchanged here; checked generated
-paths use the explicit bounds helpers when an error must be surfaced to the caller.
+the way out. Out-of-range positions leave the value unchanged here; checked interpreter
+paths use explicit bounds helpers when an error must be surfaced to the caller.
 
 Keeping selection and update pure makes alias write-back predictable and avoids hidden
 mutable state inside the runtime carrier.
@@ -952,8 +933,7 @@ def toNat (value : Angle width) : Nat := value.bits.toNat
 end Angle
 
 ```
-
-## Crossing the generated-program boundary
+## Crossing the IR execution boundary
 
 `ValueCodec` is the single conversion protocol between native Lean fields and runtime
 values. Scalar instances validate initialization, while the array instance checks both
@@ -1127,18 +1107,14 @@ end ValueCodec
 
 ```
 
-## Reproducible program metadata
+## Static circuit diagram model
 
-The final records identify source origins and target settings without coupling execution
-to a backend. They are emitted beside every generated program for diagnostics and
-reproducibility.
+These backend-independent presentation records describe wires, operations, and structured
+regions. `QASM.Diagram.ofProgram` derives them from canonical IR before the HTML renderer
+lays them out.
 
 ```lean
 
-structure ProgramOrigin where
-  name : String
-  digest : UInt64
-  deriving Repr, Inhabited, BEq
 
 inductive DiagramOperationKind where
   | gate
@@ -1179,16 +1155,6 @@ structure CircuitDiagram where
   items : Array DiagramItem := #[]
   deriving Repr, Inhabited, BEq
 
-/-- Stable metadata emitted beside every generated native Lean program. -/
-structure CheckedProgramInfo where
-  versionMajor : Nat := 3
-  versionMinor : Nat := 0
-  target : TargetConfig := .default
-  origins : Array ProgramOrigin := #[]
-  annotations : Array String := #[]
-  pragmas : Array String := #[]
-  diagram : CircuitDiagram := {}
-  deriving Repr, Inhabited
 
 end QASM
 ```

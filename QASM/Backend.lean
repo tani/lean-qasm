@@ -1,12 +1,13 @@
+    import LiterateLean
     import QASM.Runtime
     open scoped LiterateLean
 
 # Deterministic trace backend
 
-A generated `qasm!` program does not know how qubits are represented or how a
-quantum operation is executed. It knows only the `QuantumBackend` interface from
-`QASM.Runtime`. This module supplies one small, reusable implementation of that
-interface.
+A generated `qasm!` wrapper evaluates canonical IR without fixing how qubits are
+represented or how quantum operations are executed. The IR interpreter knows only the
+`QuantumBackend` interface from `QASM.Runtime`; this module supplies one small, reusable
+implementation of that interface.
 
 The implementation is deliberately a *trace backend*. It allocates stable numeric
 qubit identifiers, records every effect in execution order, and chooses measurement
@@ -25,9 +26,8 @@ namespace TraceBackend
 
 ## Choosing measurement results
 
-Measurement is the only backend operation that must synthesize a value consumed by
-the generated classical program. A trace backend therefore needs an explicit rule for
-choosing that value.
+Measurement is the only backend operation that must synthesize a value consumed by the
+IR interpreter. A trace backend therefore needs an explicit rule for choosing that value.
 
 The default `parity` policy returns `false` for even qubit identifiers and `true` for
 odd identifiers. It is deterministic while still making adjacent qubits distinguishable.
@@ -94,8 +94,8 @@ structure State where
 
 The backend is pure: `M` is just `StateM State`, so running a program requires no
 `IO`. Qubits are natural-number handles. `Error` is `Empty` because every operation
-defined here succeeds; generated programs can still report their own `RunError` cases
-such as an invalid index or shape mismatch.
+defined here succeeds; IR execution can still report `RunError` cases such as an invalid
+index or shape mismatch.
 
 These abbreviations also make the intended instantiation concise:
 `Example.execute (qasmM := TraceBackend.M) inputs`.

@@ -1,5 +1,29 @@
-import QASM
+    import LiterateLean
+    import QASM
+    open scoped LiterateLean
 
+# End-to-end LeanQASM tests
+
+This executable suite validates observable contracts across parsing, checking, canonical
+IR lowering, interpretation, backend delegation, emission, and diagram extraction. Test
+fixtures are ordinary `qasm!` declarations so compilation also checks their generated
+typed boundaries.
+
+## Fixture map
+
+Classical fixtures cover structured control and typed input. Quantum and callable fixtures
+cover backend effects, user declarations, includes, and array-reference writeback.
+Metadata and scalar fixtures cover persistent directives, diagrams, codecs, casts, and
+extended syntax. The final group stresses modifiers, recursion, and measurement.
+
+## Declarations and execution bindings
+
+`qasm!` emits a persistent canonical program together with typed input, output, and
+execution declarations. LiterateLean introduces a competing Markdown command parse, so
+the elaborator explicitly selects the real Lean alternative when reparsing those generated
+declarations; every definition remains available to later blocks.
+
+```lean
 namespace QASMTests
 
 open QASM
@@ -28,6 +52,18 @@ qasm! NativeInput {
   output int[32] result;
   result = value + 1;
 }
+
+end QASMTests
+```
+
+### Quantum effects and callable fixtures
+
+These programs cover backend operations, user gates, subroutines, mutable array-reference
+writeback, recursive includes, and fixed-shape arrays.
+
+```lean
+namespace QASMTests
+open QASM
 
 qasm! PortableQuantum {
   OPENQASM 3.0;
@@ -83,6 +119,19 @@ qasm! NativeArrays {
   sum = values[0] + values[1];
   second_dimension = sizeof(matrix, 1);
 }
+
+end QASMTests
+```
+
+### Metadata, diagrams, and scalar fixtures
+
+Directives and diagram source regions are retained in canonical IR. Complex arithmetic,
+the extended dialect, SI durations, casts, and scalar iteration exercise target-resolved
+types at the generated boundary.
+
+```lean
+namespace QASMTests
+open QASM
 
 qasm! MetadataProgram {
   OPENQASM 3.0;
@@ -161,6 +210,18 @@ qasm! NativeScalarFor {
   }
 }
 
+end QASMTests
+```
+
+### Modifiers, recursion, and measurement fixtures
+
+The final declarations stress complete user-gate modifiers, recursive calls, indexed
+measurement targets, and deterministic scheduled outcomes.
+
+```lean
+namespace QASMTests
+open QASM
+
 qasm! ModifiedUserGate {
   OPENQASM 3.0;
   include "stdgates.inc";
@@ -196,6 +257,19 @@ qasm! ScheduledMeasurements {
   qubit[3] q;
   result = measure q;
 }
+
+end QASMTests
+```
+
+## Deterministic execution helpers
+
+Each helper instantiates a generated wrapper with the trace backend and runs the resulting
+state computation. Separating execution from assertions keeps failures focused on either
+the program result or its recorded effects.
+
+```lean
+namespace QASMTests
+open QASM
 
 abbrev TestM := TraceBackend.M
 
@@ -254,16 +328,30 @@ private def runScheduledMeasurements :=
   Id.run ((ScheduledMeasurements.execute (qasmM := TraceBackend.M) {}) |>.run
     (TraceBackend.initial #[true, false, true] (.constant false)))
 
+end QASMTests
+
+```
+
+## Core execution contracts
+
+These assertions cover structured control signals, typed input encoding, quantum
+delegation, subroutine returns, mutable reference writeback, recursive includes, and array
+semantics. They check results and backend effects rather than implementation details of
+the interpreter.
+
+```lean
+namespace QASMTests
+open QASM
 private def testNativeControl : IO Unit := do
   match runNative.1 with
-  | .error _ => throw (IO.userError "native control-flow program returned an error")
+  | .error error => throw (IO.userError s!"IR control-flow program returned an error: {repr error}")
   | .ok outputs =>
       assertTrue (outputs.result.toInt == 5)
-        "for/if/continue/while/break did not execute with native Lean semantics"
+        s!"for/if/continue/while/break result was {outputs.result.toInt}, expected 5"
 
 private def testInput : IO Unit := do
   match runInput.1 with
-  | .error _ => throw (IO.userError "native input program returned an error")
+  | .error _ => throw (IO.userError "typed input program returned an error")
   | .ok outputs =>
       assertTrue (outputs.result.toInt == 42) "generated typed Inputs value was not bound"
 
@@ -286,14 +374,14 @@ private def testQuantumBackend : IO Unit := do
 
 private def testSubroutine : IO Unit := do
   match runSubroutine.1 with
-  | .error _ => throw (IO.userError "native subroutine program returned an error")
+  | .error _ => throw (IO.userError "IR subroutine program returned an error")
   | .ok outputs =>
       assertTrue (outputs.result.toInt == 42)
-        "OpenQASM def/call/return was not lowered to a native Lean function"
+        "OpenQASM def/call/return was not preserved by IR lowering and execution"
 
 private def testMutableArrayReference : IO Unit := do
   match runMutableArray.1 with
-  | .error _ => throw (IO.userError "mutable array-reference program returned an error")
+  | .error error => throw (IO.userError s!"mutable array-reference program returned an error: {repr error}")
   | .ok outputs =>
       assertTrue (outputs.result.toInt == 42)
         "mutable array-reference changes were not written back to the caller"
@@ -311,16 +399,31 @@ private def testFileAndInclude : IO Unit := do
 
 private def testArrays : IO Unit := do
   match runArrays.1 with
-  | .error _ => throw (IO.userError "portable array program returned an error")
+  | .error error => throw (IO.userError s!"portable array program returned an error: {repr error}")
   | .ok outputs =>
       assertTrue (outputs.sum.toInt == 42) "array slice assignment/indexing failed"
       assertTrue (outputs.second_dimension.toInt == 3)
         "multidimensional default shape or sizeof dimension failed"
 
+end QASMTests
+
+```
+
+## Persistent metadata and static diagrams
+
+Pragmas, annotations, origins, and includes must survive lowering in canonical IR.
+Diagram extraction must preserve source regions and conventional glyphs while remaining
+independent of execution outcomes.
+
+```lean
+namespace QASMTests
+open QASM
 private def testMetadata : IO Unit := do
-  assertTrue (MetadataProgram.program.pragmas == #["compiler optimize"])
+  assertTrue (MetadataProgram.program.pragmas.map (·.content) == #["compiler optimize"])
     "pragma metadata was not retained"
-  assertTrue (MetadataProgram.program.annotations == #["@tool.note preserve"])
+  assertTrue (MetadataProgram.program.annotations.map
+      (fun annotation => (annotation.keyword, annotation.content)) ==
+      #[("tool.note", some "preserve")])
     "annotation metadata was not retained"
 
 private partial def flattenDiagramItems (items : Array DiagramItem) : Array DiagramItem :=
@@ -329,14 +432,15 @@ private partial def flattenDiagramItems (items : Array DiagramItem) : Array Diag
     | .region _ children => flattened.push item ++ flattenDiagramItems children) #[]
 
 private def testDiagram : IO Unit := do
-  let flattened := flattenDiagramItems DiagramProgram.program.diagram.items
+  let diagram := QASM.Diagram.ofProgram DiagramProgram.program
+  let flattened := flattenDiagramItems diagram.items
   let regions := flattened.filterMap fun item => match item with
     | .region label _ => some label
     | .operation _ => none
   let leaves := flattened.filterMap fun item => match item with
     | .operation operation => some operation
     | .region _ _ => none
-  assertTrue (DiagramProgram.program.diagram.wires == #["q[0]", "q[1]"])
+  assertTrue (diagram.wires == #["q[0]", "q[1]"])
     "diagram wires do not preserve the quantum register"
   assertTrue (regions == #["for i in [0:1]", "if true", "else"])
     "diagram regions do not preserve static control flow"
@@ -360,10 +464,22 @@ private def testDiagram : IO Unit := do
   assertTrue (swap.operands.size == 2 && swap.operands[0]!.wires == #[0] &&
       swap.operands[1]!.wires == #[1] && swap.glyph == .swap #[])
     "swap diagram glyph is incorrect"
-  assertTrue (MetadataProgram.program.diagram.wires.isEmpty &&
-      MetadataProgram.program.diagram.items.isEmpty)
+  let metadataDiagram := QASM.Diagram.ofProgram MetadataProgram.program
+  assertTrue (metadataDiagram.wires.isEmpty && metadataDiagram.items.isEmpty)
     "classical metadata program should have an empty circuit diagram"
 
+end QASMTests
+
+```
+
+## Scalar, gate, recursion, and measurement behavior
+
+The remaining program-level checks cover resolved scalar codecs, fixed arrays, modified
+user gates, recursive IR calls, indexed writes, and scheduled measurement order.
+
+```lean
+namespace QASMTests
+open QASM
 private def testComplex : IO Unit := do
   match runComplex.1 with
   | .error _ => throw (IO.userError "portable complex program returned an error")
@@ -441,6 +557,19 @@ private def testScheduledMeasurements : IO Unit := do
       #[(0, true), (1, false), (2, true)])
     "trace backend did not retain measured values"
 
+end QASMTests
+
+```
+
+## Runtime value algebra
+
+These focused assertions defend the scalar and aggregate operations used by `evalExpr`.
+They test observable conversion, arithmetic, indexing, and fixed-width behavior without
+reaching into private interpreter definitions.
+
+```lean
+namespace QASMTests
+open QASM
 private def testRuntimeValues : IO Unit := do
   assertTrue ((Value.integerLiteral "0xff").asInt == 255) "hex literal conversion failed"
   assertTrue ((Value.binary "+" (.integer 20) (.integer 22)).asInt == 42)
@@ -459,6 +588,19 @@ private def testRuntimeValues : IO Unit := do
   | .error _ => pure ()
   | .ok () => throw (IO.userError "unsupported target float width must be rejected")
 
+end QASMTests
+
+```
+
+## Standalone frontend round trips
+
+The frontend printer is normalized rather than lossless. These tests require printed ASTs
+to reparse with the same structure and verify that comments or source whitespace are not
+mistaken for semantic state.
+
+```lean
+namespace QASMTests
+open QASM
 private def testFrontendRoundTrip : IO Unit := do
   let source :=
     "OPENQASM 3.0;\n" ++
@@ -497,6 +639,19 @@ private def testFrontendRoundTrip : IO Unit := do
       | .error error => throw (IO.userError s!"array cast round trip failed: {error}")
       | .ok reparsed => assertTrue (program == reparsed) "array cast round trip mismatch"
 
+end QASMTests
+
+```
+
+## Capability and official-corpus boundaries
+
+Portable elaboration must reject target-dependent capabilities explicitly. The official
+valid examples exercise grammar coverage, while every official invalid fixture must fail
+before it can enter semantic analysis or lowering.
+
+```lean
+namespace QASMTests
+open QASM
 private def testCapabilityBoundary : IO Unit := do
   let source :=
     "OPENQASM 3.0;\n" ++
@@ -544,6 +699,105 @@ private def testOfficialInvalidFixtures : IO Unit := do
     throw (IO.userError ("invalid fixtures unexpectedly accepted:\n" ++
       String.intercalate "\n" accepted.toList))
 
+end QASMTests
+
+```
+
+## Canonical IR emission round trips
+
+Each elaborated fixture emits self-contained OpenQASM, reparses, rechecks, and lowers.
+Alpha equality checks stable binding structure; semantic-shape equality permits only
+presentation and diagnostic metadata differences.
+
+```lean
+namespace QASMTests
+open QASM
+private def testIRRoundTripOne (label : String) (original : QASM.IR.Program) : IO Unit := do
+  let source := toString original
+  let parsed ← match QASM.parse source with
+    | .ok parsed => pure parsed
+    | .error error => throw (IO.userError s!"{label} IR emission did not parse: {error}\n{source}")
+  let target : TargetConfig := {
+    intWidth := original.target.intWidth
+    uintWidth := original.target.uintWidth
+    floatWidth := original.target.floatWidth
+    angleWidth := original.target.angleWidth }
+  let analysis ← match QASM.analyzeTypes target parsed with
+    | .ok analysis => pure analysis
+    | .error diagnostics =>
+        throw (IO.userError s!"{label} emitted IR did not typecheck: {repr diagnostics}\n{source}")
+  let dialect : Dialect := match original.dialect with
+    | .v3_0 => .v3_0
+    | .extended => .extended
+  let lowered ← match QASM.Lowering.program parsed analysis { target, dialect } with
+    | .ok lowered => pure lowered
+    | .error diagnostic =>
+        throw (IO.userError s!"{label} emitted IR did not lower: {diagnostic.message}")
+  unless original.alphaEq lowered do
+    let declarationsLeft := { original with gates := #[] }
+    let declarationsLeft := { declarationsLeft with subroutines := #[] }
+    let declarationsLeft := { declarationsLeft with body := .skip }
+    let declarationsRight := { lowered with gates := #[] }
+    let declarationsRight := { declarationsRight with subroutines := #[] }
+    let declarationsRight := { declarationsRight with body := .skip }
+    let gatesLeft := { original with inputs := #[] }
+    let gatesLeft := { gatesLeft with outputs := #[] }
+    let gatesLeft := { gatesLeft with constants := #[] }
+    let gatesLeft := { gatesLeft with subroutines := #[] }
+    let gatesLeft := { gatesLeft with body := .skip }
+    let gatesRight := { lowered with inputs := #[] }
+    let gatesRight := { gatesRight with outputs := #[] }
+    let gatesRight := { gatesRight with constants := #[] }
+    let gatesRight := { gatesRight with subroutines := #[] }
+    let gatesRight := { gatesRight with body := .skip }
+    let bodyLeft := { original with inputs := #[] }
+    let bodyLeft := { bodyLeft with outputs := #[] }
+    let bodyLeft := { bodyLeft with constants := #[] }
+    let bodyLeft := { bodyLeft with gates := #[] }
+    let bodyLeft := { bodyLeft with subroutines := #[] }
+    let bodyRight := { lowered with inputs := #[] }
+    let bodyRight := { bodyRight with outputs := #[] }
+    let bodyRight := { bodyRight with constants := #[] }
+    let bodyRight := { bodyRight with gates := #[] }
+    let bodyRight := { bodyRight with subroutines := #[] }
+    throw (IO.userError s!"{label} IR roundtrip was not alpha-equivalent \
+      (semantic={original.semanticShapeEq lowered}, declarations={declarationsLeft.alphaEq declarationsRight}, \
+      gates={gatesLeft.alphaEq gatesRight}, body={bodyLeft.alphaEq bodyRight})\n{source}")
+
+private def testIRRoundTrips : IO Unit := do
+  testIRRoundTripOne "NativeControl" NativeControl.program
+  testIRRoundTripOne "NativeInput" NativeInput.program
+  testIRRoundTripOne "PortableQuantum" PortableQuantum.program
+  testIRRoundTripOne "NativeSubroutine" NativeSubroutine.program
+  testIRRoundTripOne "MutableArrayReference" MutableArrayReference.program
+  testIRRoundTripOne "file_program" file_program.program
+  testIRRoundTripOne "NativeArrays" NativeArrays.program
+  testIRRoundTripOne "MetadataProgram" MetadataProgram.program
+  testIRRoundTripOne "DiagramProgram" DiagramProgram.program
+  testIRRoundTripOne "NativeComplex" NativeComplex.program
+  testIRRoundTripOne "ExtendedSwitch" ExtendedSwitch.program
+  testIRRoundTripOne "NativeDuration" NativeDuration.program
+  testIRRoundTripOne "TypedArrayIO" TypedArrayIO.program
+  testIRRoundTripOne "NativeArrayCast" NativeArrayCast.program
+  testIRRoundTripOne "NativeScalarFor" NativeScalarFor.program
+  testIRRoundTripOne "ModifiedUserGate" ModifiedUserGate.program
+  testIRRoundTripOne "RecursiveSubroutine" RecursiveSubroutine.program
+  testIRRoundTripOne "IndexedMeasurement" IndexedMeasurement.program
+  testIRRoundTripOne "ScheduledMeasurements" ScheduledMeasurements.program
+
+end QASMTests
+
+```
+
+## Test driver
+
+The driver runs every contract in dependency order: generated programs and runtime values
+first, standalone frontend and capability checks next, official fixtures after that, and
+IR emission round trips last.
+
+```lean
+namespace QASMTests
+open QASM
 def run : IO Unit := do
   testNativeControl
   testInput
@@ -567,9 +821,18 @@ def run : IO Unit := do
   testRuntimeValues
   testFrontendRoundTrip
   testCapabilityBoundary
+  testIRRoundTrips
   testOfficialExamples
   testOfficialInvalidFixtures
 
 end QASMTests
 
 def main : IO Unit := QASMTests.run
+```
+
+<!--
+vim: set filetype=markdown :
+Local Variables:
+mode: markdown
+End:
+-->

@@ -61,6 +61,8 @@ structure Token where
 
 ```
 
+## Lexing
+
 ### Cursor mechanics and numeric tokens
 
 The cursor carries both remaining characters and a precise source position. Its helpers

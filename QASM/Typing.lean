@@ -8,16 +8,15 @@
 
 # OpenQASM type analysis and checking
 
-This module turns the source-oriented AST into facts strong enough for code generation.
-It resolves target-dependent widths and array shapes, evaluates integer designators,
-collects callable signatures, infers expression types, and checks every statement under
-its lexical context.
+This module turns the source-oriented AST into facts strong enough for canonical IR
+lowering. It resolves target-dependent widths and array shapes, evaluates integer
+designators, collects callable signatures, infers expression types, and checks every
+statement under its lexical context.
 
 The checker is intentionally distinct from the earlier semantic pass. Semantics handles
-source-wide rules and backend capability discovery; typing answers representation and
-compatibility questions needed by the generated Lean program. Successful analysis leaves
-no unresolved default width, array extent, callable arity, or operand category at the
-portable boundary.
+source-wide rules and backend capability discovery; typing answers the representation and
+compatibility questions required by resolved IR. Successful analysis leaves no unresolved
+default width, array extent, callable arity, or operand category at the portable boundary.
 
 Checking proceeds in dependency order: global constants first, signatures second, then
 statement bodies. This allows a body to call a declaration that appears later in source
@@ -199,7 +198,7 @@ dimensions belong in the single shape vector.
 
 Concrete arrays carry every extent. Array references may instead carry only a rank, which
 models callable parameters that accept any extents of a fixed dimensionality. Both forms
-enforce OpenQASM's maximum rank before code generation.
+enforce OpenQASM's maximum rank before IR lowering.
 
 ```lean
 private def classicalArrayElement (element : ResolvedType) : Except Diagnostic ResolvedScalar :=
@@ -236,45 +235,12 @@ partial def resolveType (target : TargetConfig) (environment : ConstantEnvironme
 
 ```
 
-## Emitting resolved types as Lean
-
-Resolution removes target-dependent defaults and evaluates every designator. These two
-renderers then translate only boundary-safe classical types into Lean source, rejecting
-references, qubits, and timing placeholders that require a different execution contract.
-
-```lean
-
-def ResolvedScalar.toLean : ResolvedScalar → Except Diagnostic String
-  | .bit none => pure "QASM.Bit"
-  | .bit (some width) => pure s!"BitVec {width}"
-  | .sint width => pure s!"QASM.SInt {width}"
-  | .uint width => pure s!"QASM.UInt {width}"
-  | .float 32 => pure "Float32"
-  | .float 64 => pure "Float"
-  | .float width => throw (diagnostic s!"cannot emit float[{width}]")
-  | .angle width => pure s!"QASM.Angle {width}"
-  | .boolean => pure "Bool"
-  | .complex width => pure s!"QASM.ComplexN {width}"
-  | .duration => pure "QASM.Duration"
-  | .stretch => throw (diagnostic "stretch requires a timing backend")
-  | .qubit _ => throw (diagnostic "qubits cannot appear in classical I/O structures")
-  | .void => throw (diagnostic "void cannot appear in a value structure")
-
-def ResolvedType.toLean : ResolvedType → Except Diagnostic String
-  | ResolvedType.scalar value => ResolvedScalar.toLean value
-  | ResolvedType.array element shape => do
-      let element ← ResolvedScalar.toLean element
-      pure s!"QASM.FixedArray ({element}) [{String.intercalate ", " (shape.toList.map toString)}]"
-  | ResolvedType.arrayRef .. =>
-      throw (diagnostic "array-reference types cannot appear in program I/O")
-
-```
 
 ## Analysis products
 
 The checker returns explicit descriptions of I/O fields and callable signatures. Keeping
-this summary independent of parser state lets elaboration generate native structures and
-functions without repeating type inference.
+this summary independent of parser state lets IR lowering resolve declarations and lets
+elaboration construct typed boundary structures without repeating type inference.
 
 ```lean
 
@@ -650,6 +616,18 @@ where
           | _ => throw (diagnostic s!"'{name}' is not a gate operand")
         for group in indices do for index in group do let _ ← inferExpression context scopes index
         if indices.isEmpty then pure count else pure 1
+
+/-- Infers an expression type from an already-validated analysis and explicit lexical bindings. -/
+def TypeAnalysis.inferExpressionType
+    (analysis : TypeAnalysis) (target : TargetConfig)
+    (bindings : List (String × ResolvedType)) (expression : Expression) :
+    Except Diagnostic ResolvedType :=
+  let context : CheckContext :=
+    { target, constants := analysis.constants, callables := analysis.callables,
+      gates := analysis.gates }
+  let scope : Scope := bindings.map fun binding =>
+    { name := binding.1, type := binding.2, writable := false }
+  inferExpression context [scope] expression
 
 ```
 
