@@ -1,5 +1,6 @@
     import LiterateLean
     import QASM.Runtime
+    import QASM.Diagram
     import QASM.Source
     import QASM.Frontend
     import QASM.Semantics

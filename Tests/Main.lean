@@ -91,6 +91,27 @@ qasm! MetadataProgram {
   int[32] value = 1;
 }
 
+qasm! DiagramProgram {
+  OPENQASM 3.0;
+  include "stdgates.inc";
+  bit[2] result;
+  qubit[2] q;
+  for uint i in [0:1] {
+    h q[i];
+  }
+  if (true) {
+    cx q[0], q[1];
+  } else {
+    reset q;
+  }
+  negctrl @ x q[0], q[1];
+  swap q[0], q[1];
+  result = measure q;
+}
+
+#html DiagramProgram.program
+#html MetadataProgram.program
+
 qasm! NativeComplex {
   OPENQASM 3.0;
   output float[64] real_part;
@@ -326,6 +347,47 @@ private def testMetadata : IO Unit := do
   assertTrue (MetadataProgram.program.annotations == #["@tool.note preserve"])
     "annotation metadata was not retained"
 
+private partial def flattenDiagramItems (items : Array DiagramItem) : Array DiagramItem :=
+  items.foldl (fun flattened item => match item with
+    | .operation _ => flattened.push item
+    | .region _ children => flattened.push item ++ flattenDiagramItems children) #[]
+
+private def testDiagram : IO Unit := do
+  let flattened := flattenDiagramItems DiagramProgram.program.diagram.items
+  let regions := flattened.filterMap fun item => match item with
+    | .region label _ => some label
+    | .operation _ => none
+  let leaves := flattened.filterMap fun item => match item with
+    | .operation operation => some operation
+    | .region _ _ => none
+  assertTrue (DiagramProgram.program.diagram.wires == #["q[0]", "q[1]"])
+    "diagram wires do not preserve the quantum register"
+  assertTrue (regions == #["for i in [0:1]", "if true", "else"])
+    "diagram regions do not preserve static control flow"
+  assertTrue (leaves.map (·.label) == #["h", "cx", "reset", "negctrl @ x", "swap", "M"])
+    "diagram leaves do not preserve source order"
+  let h := leaves[0]!
+  assertTrue (h.operands.size == 1 && h.operands[0]!.wires == #[0, 1] &&
+      h.operands[0]!.approximate)
+    "dynamic loop index did not produce an approximate two-wire operand"
+  let cx := leaves[1]!
+  assertTrue (cx.operands.size == 2 && cx.operands[0]!.wires == #[0] &&
+      cx.operands[1]!.wires == #[1] && !cx.operands[0]!.approximate &&
+      !cx.operands[1]!.approximate && cx.glyph == .controlledX #[.positive])
+    "cx diagram glyph or exact operands are incorrect"
+  let negctrlX := leaves[3]!
+  assertTrue (negctrlX.operands.size == 2 && negctrlX.operands[0]!.wires == #[0] &&
+      negctrlX.operands[1]!.wires == #[1] &&
+      negctrlX.glyph == .controlledX #[.negative])
+    "negative controlled-X diagram glyph is incorrect"
+  let swap := leaves[4]!
+  assertTrue (swap.operands.size == 2 && swap.operands[0]!.wires == #[0] &&
+      swap.operands[1]!.wires == #[1] && swap.glyph == .swap #[])
+    "swap diagram glyph is incorrect"
+  assertTrue (MetadataProgram.program.diagram.wires.isEmpty &&
+      MetadataProgram.program.diagram.items.isEmpty)
+    "classical metadata program should have an empty circuit diagram"
+
 private def testComplex : IO Unit := do
   match runComplex.1 with
   | .error _ => throw (IO.userError "portable complex program returned an error")
@@ -502,6 +564,7 @@ def run : IO Unit := do
   testFileAndInclude
   testArrays
   testMetadata
+  testDiagram
   testComplex
   testExtendedDialect
   testDuration

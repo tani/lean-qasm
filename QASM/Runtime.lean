@@ -1045,6 +1045,45 @@ structure ProgramOrigin where
   digest : UInt64
   deriving Repr, Inhabited, BEq
 
+inductive DiagramOperationKind where
+  | gate
+  | measurement
+  | reset
+  | barrier
+  | call
+  deriving Repr, Inhabited, BEq
+
+inductive DiagramGateGlyph where
+  | box
+  | controlledX (controls : Array ControlPolarity)
+  | controlledBox (controls : Array ControlPolarity) (targetLabel : String)
+  | swap (controls : Array ControlPolarity)
+  deriving Repr, Inhabited, BEq
+
+structure DiagramOperand where
+  wires : Array Nat
+  approximate : Bool := false
+  deriving Repr, Inhabited, BEq
+
+structure DiagramOperation where
+  kind : DiagramOperationKind
+  label : String
+  detail : String
+  operands : Array DiagramOperand := #[]
+  glyph : DiagramGateGlyph := .box
+  classicalTarget : Option String := none
+  deriving Repr, Inhabited, BEq
+
+inductive DiagramItem where
+  | operation (value : DiagramOperation)
+  | region (label : String) (items : Array DiagramItem)
+  deriving Repr, Inhabited, BEq
+
+structure CircuitDiagram where
+  wires : Array String := #[]
+  items : Array DiagramItem := #[]
+  deriving Repr, Inhabited, BEq
+
 /-- Stable metadata emitted beside every generated native Lean program. -/
 structure CheckedProgramInfo where
   versionMajor : Nat := 3
@@ -1053,6 +1092,7 @@ structure CheckedProgramInfo where
   origins : Array ProgramOrigin := #[]
   annotations : Array String := #[]
   pragmas : Array String := #[]
+  diagram : CircuitDiagram := {}
   deriving Repr, Inhabited
 
 end QASM

@@ -46,7 +46,7 @@ The command creates:
 - `Example.Inputs` and `Example.Outputs`, with native typed fields such as
   `QASM.SInt 32`, `BitVec n`, `Float`, or `QASM.FixedArray element shape`;
 - `Example.program : QASM.CheckedProgramInfo`, containing target and source
-  metadata;
+  metadata plus a static `.diagram`;
 - native Lean functions for QASM `def` and user-defined `gate` declarations;
 - `Example.run`, whose `for`, `if`, `while`, `switch`, `break`, and `continue`
   are generated as Lean control flow.
@@ -57,6 +57,29 @@ The command creates:
 #check Example.program
 #check Example.run
 ```
+
+### Circuit diagrams
+
+`#html Example.program` renders the program's static circuit diagram in the Lean
+infoview. For example:
+
+```lean
+qasm! Bell {
+  OPENQASM 3.0;
+  include "stdgates.inc";
+  qubit[2] q;
+  h q[0];
+  cx q[0], q[1];
+}
+
+#html Bell.program
+```
+
+Diagrams are static source views. They show every control-flow branch and loop body
+once; gate and quantum-subroutine calls remain opaque and named. Exact controlled gates
+and swaps use conventional glyphs, while other or ineligible operations use labeled
+boxes. Dynamic target sets are marked approximately. Rendering never executes inputs or
+measurements, chooses outcomes, or selects a control-flow path.
 
 Target widths and the opt-in extended dialect are supplied directly after `using`. Strict
 OpenQASM 3.0 is the default; `switch` and `nop` require `.extended`.

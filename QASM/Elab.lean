@@ -1,6 +1,7 @@
     import LiterateLean
 
     import QASM.Runtime
+    import QASM.Diagram
     import QASM.Source
     import QASM.Frontend
     import QASM.Semantics
@@ -830,20 +831,527 @@ private partial def collectMetadataFromStatement
 private def collectMetadata (program : Frontend.Program) : Array String × Array String :=
   program.statements.foldl collectMetadataFromStatement (#[], #[])
 
+private abbrev DiagramEnvironment := List (String × Option DiagramOperand)
+
+private structure DiagramState where
+  wires : Array String := #[]
+  declaredNames : Array String := #[]
+
+private abbrev DiagramM := StateT DiagramState (Except String)
+
+private def diagramDeduplicate (wires : Array Nat) : Array Nat :=
+  wires.foldl (fun result wire =>
+    if result.contains wire then result else result.push wire) #[]
+
+private def diagramOperandFrom (operands : Array DiagramOperand) : DiagramOperand :=
+  { wires := diagramDeduplicate (operands.foldl (fun wires operand =>
+      wires ++ operand.wires) #[])
+    approximate := operands.any (·.approximate) }
+
+private def diagramBinding? (environment : DiagramEnvironment) (name : String) :
+    Option (Option DiagramOperand) :=
+  (environment.find? fun binding => binding.1 == name).map fun binding => binding.2
+
+private def diagramOptionalConst (constants : ConstantEnvironment)
+    (value : Option Expression) (fallback : Int) : Option Int :=
+  match value with
+  | none => some fallback
+  | some value => (Frontend.evalConstInt constants value).toOption
+
+private def diagramSelectorValues? (constants : ConstantEnvironment) :
+    Expression → Option (Array Value)
+  | .range start step stop => do
+      let start ← diagramOptionalConst constants start 0
+      let step ← diagramOptionalConst constants step 1
+      let stop ← diagramOptionalConst constants stop start
+      pure (Value.range (.integer start) (.integer step) (.integer stop))
+  | .set values | .array values =>
+      values.mapM fun value =>
+        (Frontend.evalConstInt constants value).toOption.map fun value => Value.integer value
+  | value =>
+      (Frontend.evalConstInt constants value).toOption.map fun value => #[Value.integer value]
+
+private def diagramSelect (constants : ConstantEnvironment)
+    (binding : DiagramOperand) (selector : Expression) : DiagramOperand :=
+  if binding.approximate then
+    { binding with approximate := true }
+  else
+    match diagramSelectorValues? constants selector with
+    | none => { wires := binding.wires, approximate := true }
+    | some selectors =>
+        let selected := selectors.foldl (fun result selector =>
+          match Value.resolveIndex? binding.wires.size selector with
+          | .ok index => match binding.wires[index]? with
+            | some wire => result.push wire
+            | none => result
+          | .error _ => result) #[]
+        if selected.size == selectors.size then
+          { wires := diagramDeduplicate selected }
+        else
+          { wires := binding.wires, approximate := true }
+
+private partial def diagramQuantumExpression?
+    (analysis : Frontend.TypeAnalysis) (environment : DiagramEnvironment) :
+    Expression → Except String (Option DiagramOperand)
+  | .identifier name => pure (diagramBinding? environment name |>.join)
+  | .hardwareQubit index =>
+      throw s!"hardware qubit ${index} reached portable diagram generation"
+  | .index value indices => do
+      let some binding ← diagramQuantumExpression? analysis environment value
+        | pure none
+      let binding := indices.foldl
+        (fun binding selector => diagramSelect analysis.constants binding selector) binding
+      pure (some binding)
+  | .binary "++" left right => do
+      let left ← diagramQuantumExpression? analysis environment left
+      let right ← diagramQuantumExpression? analysis environment right
+      match left, right with
+      | none, none => pure none
+      | some left, some right => pure (some (diagramOperandFrom #[left, right]))
+      | _, _ => throw "quantum concatenation mixes quantum and classical values"
+  | .set values | .array values => do
+      let mut operands := #[]
+      for value in values do
+        match ← diagramQuantumExpression? analysis environment value with
+        | some operand => operands := operands.push operand
+        | none => return none
+      pure (some (diagramOperandFrom operands))
+  | _ => pure none
+
+private def diagramOperand
+    (analysis : Frontend.TypeAnalysis) (environment : DiagramEnvironment) :
+    Operand → Except String DiagramOperand
+  | .hardware index =>
+      throw s!"hardware qubit ${index} reached portable diagram generation"
+  | .identifier name groups => do
+      let binding ← match diagramBinding? environment name with
+      | some (some binding) => pure binding
+      | _ => throw s!"unknown quantum binding '{name}'"
+      if groups.isEmpty then pure binding else
+        let mut selections := #[]
+        for group in groups do
+          for selector in group do
+            selections := selections.push (diagramSelect analysis.constants binding selector)
+        pure (diagramOperandFrom selections)
+
+private def diagramVisibleWires (environment : DiagramEnvironment) : Array Nat :=
+  Id.run do
+    let mut names := #[]
+    let mut wires := #[]
+    for (name, binding) in environment do
+      unless names.contains name do
+        names := names.push name
+        match binding with
+        | some binding => wires := wires ++ binding.wires
+        | none => pure ()
+    return diagramDeduplicate wires
+
+private def diagramWidth (analysis : Frontend.TypeAnalysis)
+    (name : String) (size : Option Expression) : Except String Nat := do
+  let count ← match size with
+    | none => pure 1
+    | some size => match Frontend.evalConstInt analysis.constants size with
+      | .ok count => pure count
+      | .error error => throw error.message
+  unless count > 0 do
+    throw s!"declaration '{name}' has non-positive quantum width {count}"
+  pure count.toNat
+
+private def diagramAllocate
+    (analysis : Frontend.TypeAnalysis) (name : String) (size : Option Expression) :
+    DiagramM DiagramOperand := do
+  let count ← match diagramWidth analysis name size with
+    | .ok count => pure count
+    | .error error => throw error
+  let state ← get
+  let ordinal := state.declaredNames.foldl
+    (fun total declared => if declared == name then total + 1 else total) 1
+  let base := if ordinal == 1 then name else name ++ "#" ++ toString ordinal
+  let start := state.wires.size
+  let labels := Array.range count |>.map fun index =>
+    if size.isNone then base else s!"{base}[{index}]"
+  modify fun state =>
+    { wires := state.wires ++ labels,
+      declaredNames := state.declaredNames.push name }
+  pure { wires := Array.range count |>.map (start + ·) }
+
+private def diagramModifierLabel : GateModifier → String
+  | .inverse => "inv"
+  | .power exponent => s!"pow({exponent.toQasm})"
+  | .control false none => "ctrl"
+  | .control true none => "negctrl"
+  | .control false (some count) => s!"ctrl({count.toQasm})"
+  | .control true (some count) => s!"negctrl({count.toQasm})"
+
+private def diagramGateLabel (modifiers : Array GateModifier) (name : String)
+    (parameters : Array Expression) (designator : Option Expression) : String :=
+  let parameters := if parameters.isEmpty then ""
+    else s!"({String.intercalate ", " (parameters.toList.map Expression.toQasm)})"
+  let designator := designator.map (fun value => s!"[{value.toQasm}]") |>.getD ""
+  String.intercalate " @ " ((modifiers.map diagramModifierLabel).toList ++ [name ++ parameters ++ designator])
+
+private def diagramExplicitControls? (constants : ConstantEnvironment)
+    (modifiers : Array GateModifier) : Option (Array ControlPolarity) :=
+  modifiers.foldl (fun controls modifier => do
+    let controls ← controls
+    match modifier with
+    | .inverse | .power _ => pure controls
+    | .control negative none =>
+        pure (controls.push (if negative then .negative else .positive))
+    | .control negative (some count) => do
+        let count ← (Frontend.evalConstInt constants count).toOption
+        if count <= 0 then none else
+          pure (controls ++ Array.replicate count.toNat
+            (if negative then .negative else .positive))) (some #[])
+
+private def diagramBuiltinControls (name : String) : Array ControlPolarity :=
+  match name with
+  | "cx" | "CX" | "cy" | "cz" | "cp" | "crx" | "cry" | "crz" |
+      "ch" | "cu" | "cphase" | "cswap" => #[.positive]
+  | "ccx" => #[.positive, .positive]
+  | _ => #[]
+
+private def diagramGateTargetLabel (name : String)
+    (parameters : Array Expression) (designator : Option Expression) : String :=
+  let parameters := if parameters.isEmpty then ""
+    else s!"({String.intercalate ", " (parameters.toList.map Expression.toQasm)})"
+  let designator := designator.map (fun value => s!"[{value.toQasm}]") |>.getD ""
+  match name with
+  | "x" | "cx" | "CX" | "ccx" => "X"
+  | "y" | "cy" => "Y"
+  | "z" | "cz" => "Z"
+  | "h" | "ch" => "H"
+  | "p" | "cp" => "P" ++ parameters
+  | "rx" | "crx" => "Rx" ++ parameters
+  | "ry" | "cry" => "Ry" ++ parameters
+  | "rz" | "crz" => "Rz" ++ parameters
+  | "u" | "cu" => "U" ++ parameters
+  | "phase" | "cphase" => "phase" ++ parameters
+  | _ => name ++ parameters ++ designator
+
+private def diagramGateGlyph (analysis : Frontend.TypeAnalysis)
+    (modifiers : Array GateModifier) (name : String)
+    (parameters : Array Expression) (designator : Option Expression) : DiagramGateGlyph :=
+  match diagramExplicitControls? analysis.constants modifiers with
+  | none => .box
+  | some explicitControls =>
+      let controls := explicitControls ++ diagramBuiltinControls name
+      let hasInverseOrPower := modifiers.any fun modifier => match modifier with
+        | .inverse | .power _ => true
+        | .control .. => false
+      let targetModifiers := modifiers.filterMap fun modifier => match modifier with
+        | .inverse | .power _ => some (diagramModifierLabel modifier)
+        | .control .. => none
+      let target := String.intercalate " @ "
+        (targetModifiers.toList ++ [diagramGateTargetLabel name parameters designator])
+      if name == "swap" || name == "cswap" then
+        if hasInverseOrPower then
+          if controls.isEmpty then .box else .controlledBox controls target
+        else .swap controls
+      else if (name == "x" || name == "cx" || name == "CX" || name == "ccx") &&
+          !hasInverseOrPower then
+        .controlledX controls
+      else if controls.isEmpty then .box else .controlledBox controls target
+
+private def diagramOperationKindCode : DiagramOperationKind → String
+  | .gate => "QASM.DiagramOperationKind.gate"
+  | .measurement => "QASM.DiagramOperationKind.measurement"
+  | .reset => "QASM.DiagramOperationKind.reset"
+  | .barrier => "QASM.DiagramOperationKind.barrier"
+  | .call => "QASM.DiagramOperationKind.call"
+
+private def diagramControlPolarityCode : ControlPolarity → String
+  | .positive => "QASM.ControlPolarity.positive"
+  | .negative => "QASM.ControlPolarity.negative"
+
+private def diagramGlyphCode : DiagramGateGlyph → String
+  | .box => "QASM.DiagramGateGlyph.box"
+  | .controlledX controls =>
+      "QASM.DiagramGateGlyph.controlledX " ++ arrayCode (controls.map diagramControlPolarityCode)
+  | .controlledBox controls target =>
+      "QASM.DiagramGateGlyph.controlledBox " ++
+        arrayCode (controls.map diagramControlPolarityCode) ++ " " ++ leanString target
+  | .swap controls =>
+      "QASM.DiagramGateGlyph.swap " ++ arrayCode (controls.map diagramControlPolarityCode)
+
+private def diagramOperandCode (operand : DiagramOperand) : String :=
+  "{ wires := " ++ arrayCode (operand.wires.map toString) ++
+    ", approximate := " ++ toString operand.approximate ++ " }"
+
+private def diagramOperationCode (operation : DiagramOperation) : String :=
+  "{ kind := " ++ diagramOperationKindCode operation.kind ++
+    ", label := " ++ leanString operation.label ++
+    ", detail := " ++ leanString operation.detail ++
+    ", operands := " ++ arrayCode (operation.operands.map diagramOperandCode) ++
+    ", glyph := " ++ diagramGlyphCode operation.glyph ++
+    ", classicalTarget := " ++ (match operation.classicalTarget with
+      | none => "none"
+      | some target => "some " ++ leanString target) ++ " }"
+
+private partial def diagramItemCode : DiagramItem → String
+  | .operation operation =>
+      "QASM.DiagramItem.operation " ++ diagramOperationCode operation
+  | .region label items =>
+      "QASM.DiagramItem.region " ++ leanString label ++ " " ++
+        arrayCode (items.map diagramItemCode)
+
+private def circuitDiagramCode (diagram : CircuitDiagram) : String :=
+  "{ wires := " ++ arrayCode (diagram.wires.map leanString) ++
+    ", items := " ++ arrayCode (diagram.items.map diagramItemCode) ++ " }"
+
+private def diagramSubroutine? (program : Frontend.Program) (name : String) :
+    Option (Array ArgumentDefinition) :=
+  program.statements.toList.findSome? fun statement => match statement with
+    | .defStatement candidate arguments _ _ =>
+        if candidate == name then some arguments else none
+    | _ => none
+
+private partial def diagramExpressionItems
+    (program : Frontend.Program) (analysis : Frontend.TypeAnalysis)
+    (environment : DiagramEnvironment) (detail : String) :
+    Expression → Except String (Array DiagramItem)
+  | .literal _ | .identifier _ | .hardwareQubit _ | .measure _ | .durationOf _ => pure #[]
+  | .unary _ operand => diagramExpressionItems program analysis environment detail operand
+  | .binary _ left right => do
+      let left ← diagramExpressionItems program analysis environment detail left
+      let right ← diagramExpressionItems program analysis environment detail right
+      pure (left ++ right)
+  | .call name arguments => do
+      let mut items := #[]
+      for argument in arguments do
+        items := items ++ (← diagramExpressionItems program analysis environment detail argument)
+      match diagramSubroutine? program name with
+      | none => pure items
+      | some definitions =>
+          let mut operands := #[]
+          for (definition, argument) in definitions.zip arguments do
+            if isQuantumType definition.type then
+              let some operand ← diagramQuantumExpression? analysis environment argument
+                | throw s!"unknown quantum binding in argument to subroutine '{name}'"
+              operands := operands.push operand
+          if operands.isEmpty then pure items else
+            pure (items.push (.operation
+              { kind := .call, label := name, detail := detail, operands := operands }))
+  | .cast _ width value => do
+      let widthItems ← match width with
+        | none => pure #[]
+        | some width => diagramExpressionItems program analysis environment detail width
+      pure (widthItems ++ (← diagramExpressionItems program analysis environment detail value))
+  | .arrayCast _ width dimensions value => do
+      let mut items ← match width with
+        | none => pure #[]
+        | some width => diagramExpressionItems program analysis environment detail width
+      for dimension in dimensions do
+        items := items ++ (← diagramExpressionItems program analysis environment detail dimension)
+      pure (items ++ (← diagramExpressionItems program analysis environment detail value))
+  | .index value indices => do
+      let mut items ← diagramExpressionItems program analysis environment detail value
+      for index in indices do
+        items := items ++ (← diagramExpressionItems program analysis environment detail index)
+      pure items
+  | .range start step stop => do
+      let mut items := #[]
+      for value in #[start, step, stop].filterMap id do
+        items := items ++ (← diagramExpressionItems program analysis environment detail value)
+      pure items
+  | .set values | .array values => do
+      let mut items := #[]
+      for value in values do
+        items := items ++ (← diagramExpressionItems program analysis environment detail value)
+      pure items
+
+private def diagramLift (value : Except String α) : DiagramM α :=
+  match value with
+  | .ok value => pure value
+  | .error error => throw error
+
+private def diagramRegion (label : String) (items : Array DiagramItem) : Array DiagramItem :=
+  if items.isEmpty then #[] else #[.region label items]
+
+private def diagramMeasurement
+    (analysis : Frontend.TypeAnalysis) (environment : DiagramEnvironment)
+    (source : Operand) (detail : String) (target : Option String := none) :
+    Except String (Array DiagramItem) := do
+  let operand ← diagramOperand analysis environment source
+  let operation : DiagramOperation :=
+    { kind := .measurement, label := "M", «detail» := detail,
+      operands := #[operand], classicalTarget := target }
+  pure #[.operation operation]
+
+mutual
+private partial def diagramStatements
+    (program : Frontend.Program) (analysis : Frontend.TypeAnalysis)
+    (environment : DiagramEnvironment) (statements : Array Statement) :
+    DiagramM (DiagramEnvironment × Array DiagramItem) := do
+  let mut environment := environment
+  let mut items := #[]
+  for statement in statements do
+    let (nextEnvironment, statementItems) ←
+      diagramStatement program analysis environment statement
+    environment := nextEnvironment
+    items := items ++ statementItems
+  pure (environment, items)
+
+private partial def diagramStatement
+    (program : Frontend.Program) (analysis : Frontend.TypeAnalysis)
+    (environment : DiagramEnvironment) : Statement →
+    DiagramM (DiagramEnvironment × Array DiagramItem)
+  | .includeFile _ | .pragma _ | .calibrationGrammar _ | .calStatement _ |
+      .defcalStatement _ _ | .externStatement _ _ _ | .gateDefinition _ _ _ _ |
+      .defStatement _ _ _ _ =>
+      pure (environment, #[])
+  | .qubit name size | .qreg name size => do
+      let binding ← diagramAllocate analysis name size
+      pure ((name, some binding) :: environment, #[])
+  | .bit name _ | .creg name _ =>
+      pure ((name, none) :: environment, #[])
+  | .classicalDeclaration type name initializer => do
+      let detail := (Statement.classicalDeclaration type name initializer).toQasm
+      let items ← match initializer with
+      | some (.measure source) => diagramLift (diagramMeasurement analysis environment source detail (some name))
+      | some value => diagramLift (diagramExpressionItems program analysis environment detail value)
+      | none => pure #[]
+      pure ((name, none) :: environment, items)
+  | .constDeclaration _ name _ =>
+      pure ((name, none) :: environment, #[])
+  | .ioDeclaration _ _ name =>
+      pure ((name, none) :: environment, #[])
+  | .aliasDeclaration name value => do
+      match ← diagramLift (diagramQuantumExpression? analysis environment value) with
+      | some binding => pure ((name, some binding) :: environment, #[])
+      | none =>
+          let items ← diagramLift
+            (diagramExpressionItems program analysis environment
+              (Statement.aliasDeclaration name value).toQasm value)
+          pure ((name, none) :: environment, items)
+  | .assignment target operator value => do
+      let detail := (Statement.assignment target operator value).toQasm
+      let items ← match value with
+      | .measure source =>
+          diagramLift (diagramMeasurement analysis environment source detail (some target.toQasm))
+      | value => diagramLift (diagramExpressionItems program analysis environment detail value)
+      pure (environment, items)
+  | .expression value => do
+      let detail := (Statement.expression value).toQasm
+      pure (environment, ← diagramLift (diagramExpressionItems program analysis environment detail value))
+  | .scope body => do
+      let (_, items) ← diagramStatements program analysis environment body
+      pure (environment, items)
+  | .ifStatement condition thenBody elseBody => do
+      let calls ← diagramLift
+        (diagramExpressionItems program analysis environment condition.toQasm condition)
+      let (_, thenItems) ← diagramStatements program analysis environment thenBody
+      let mut items := calls ++ diagramRegion ("if " ++ condition.toQasm) thenItems
+      match elseBody with
+      | none => pure ()
+      | some elseBody =>
+          let (_, elseItems) ← diagramStatements program analysis environment elseBody
+          items := items ++ diagramRegion "else" elseItems
+      pure (environment, items)
+  | .whileStatement condition body => do
+      let calls ← diagramLift
+        (diagramExpressionItems program analysis environment condition.toQasm condition)
+      let (_, bodyItems) ← diagramStatements program analysis environment body
+      pure (environment, calls ++ diagramRegion ("while " ++ condition.toQasm) bodyItems)
+  | .switchStatement value cases defaultBody => do
+      let mut items ← diagramLift
+        (diagramExpressionItems program analysis environment value.toQasm value)
+      for (values, body) in cases do
+        let (_, bodyItems) ← diagramStatements program analysis environment body
+        let label := "case " ++ String.intercalate ", " (values.toList.map Expression.toQasm)
+        items := items ++ diagramRegion label bodyItems
+      match defaultBody with
+      | none => pure ()
+      | some body =>
+          let (_, bodyItems) ← diagramStatements program analysis environment body
+          items := items ++ diagramRegion "default" bodyItems
+      pure (environment, items)
+  | .forStatement type iterator iterable body => do
+      let detail := (Statement.forStatement type iterator iterable body).toQasm
+      let calls ← diagramLift (diagramExpressionItems program analysis environment detail iterable)
+      let (_, bodyItems) ← diagramStatements program analysis ((iterator, none) :: environment) body
+      let iterableLabel := match iterable with
+        | .range _ _ _ => "[" ++ iterable.toQasm ++ "]"
+        | _ => iterable.toQasm
+      pure (environment, calls ++ diagramRegion ("for " ++ iterator ++ " in " ++ iterableLabel) bodyItems)
+  | .breakStatement | .continueStatement | .endStatement =>
+      pure (environment, #[])
+  | .returnStatement none => pure (environment, #[])
+  | .returnStatement (some value) => do
+      let detail := (Statement.returnStatement (some value)).toQasm
+      let items ← match value with
+      | .measure source => diagramLift (diagramMeasurement analysis environment source detail)
+      | value => diagramLift (diagramExpressionItems program analysis environment detail value)
+      pure (environment, items)
+  | .gateCall modifiers name parameters designator operands => do
+      let statement : Statement := .gateCall modifiers name parameters designator operands
+      let detail := statement.toQasm
+      let mut items := #[]
+      for parameter in parameters do
+        items := items ++ (← diagramLift
+          (diagramExpressionItems program analysis environment detail parameter))
+      for modifier in modifiers do
+        match modifier with
+        | .power exponent =>
+            items := items ++ (← diagramLift
+              (diagramExpressionItems program analysis environment detail exponent))
+        | .inverse | .control .. => pure ()
+      let resolved ← diagramLift (operands.mapM (diagramOperand analysis environment))
+      items := items.push (.operation
+        { kind := .gate, label := diagramGateLabel modifiers name parameters designator,
+          detail := detail, operands := resolved,
+          glyph := diagramGateGlyph analysis modifiers name parameters designator })
+      pure (environment, items)
+  | .measure source target => do
+      let statement : Statement := .measure source target
+      let target := target.map Operand.toQasm
+      pure (environment, ← diagramLift
+        (diagramMeasurement analysis environment source statement.toQasm target))
+  | .reset operand => do
+      let statement : Statement := .reset operand
+      let operand ← diagramLift (diagramOperand analysis environment operand)
+      pure (environment, #[.operation
+        { kind := .reset, label := "reset", detail := statement.toQasm, operands := #[operand] }])
+  | .barrier operands => do
+      let statement : Statement := .barrier operands
+      let resolved ← if operands.isEmpty then
+        pure #[{ wires := diagramVisibleWires environment }]
+      else diagramLift (operands.mapM (diagramOperand analysis environment))
+      pure (environment, #[.operation
+        { kind := .barrier, label := "barrier", detail := statement.toQasm, operands := resolved }])
+  | .boxStatement designator body => do
+      let (_, items) ← diagramStatements program analysis environment body
+      let label := designator.map (fun value => "box [" ++ value.toQasm ++ "]") |>.getD "box"
+      pure (environment, diagramRegion label items)
+  | .delayStatement _ _ | .nopStatement _ =>
+      pure (environment, #[])
+  | .annotated _ statement =>
+      diagramStatement program analysis environment statement
+end
+
+private def circuitDiagram
+    (program : Frontend.Program) (analysis : Frontend.TypeAnalysis) : Except String CircuitDiagram :=
+  match (diagramStatements program analysis [] program.statements).run {} with
+  | .ok ((_, items), state) => .ok { wires := state.wires, items }
+  | .error message => .error s!"cannot build circuit diagram: {message}"
+
 private def programCommand
     (name : String) (origins : Array (String × UInt64))
-    (options : ElabOptions) (program : Frontend.Program) : String :=
+    (options : ElabOptions) (program : Frontend.Program)
+    (analysis : Frontend.TypeAnalysis) : Except String String := do
+  let diagram ← circuitDiagram program analysis
   let (annotations, pragmas) := collectMetadata program
   let originCode := origins.map fun origin =>
     "{ name := " ++ leanString origin.1 ++ ", digest := " ++ toString origin.2 ++ " }"
-  s!"def {name}.program : QASM.CheckedProgramInfo where\n" ++
-  "  target := { intWidth := " ++ toString options.target.intWidth ++
-  ", uintWidth := " ++ toString options.target.uintWidth ++
-  ", floatWidth := " ++ toString options.target.floatWidth ++
-  ", angleWidth := " ++ toString options.target.angleWidth ++ " }\n" ++
-  "  origins := " ++ arrayCode originCode ++ "\n" ++
-  "  annotations := " ++ arrayCode (annotations.map leanString) ++ "\n" ++
-  "  pragmas := " ++ arrayCode (pragmas.map leanString)
+  pure <| s!"def {name}.program : QASM.CheckedProgramInfo where\n" ++
+    "  target := { intWidth := " ++ toString options.target.intWidth ++
+    ", uintWidth := " ++ toString options.target.uintWidth ++
+    ", floatWidth := " ++ toString options.target.floatWidth ++
+    ", angleWidth := " ++ toString options.target.angleWidth ++ " }\n" ++
+    "  origins := " ++ arrayCode originCode ++ "\n" ++
+    "  annotations := " ++ arrayCode (annotations.map leanString) ++ "\n" ++
+    "  pragmas := " ++ arrayCode (pragmas.map leanString) ++ "\n" ++
+    "  diagram := " ++ circuitDiagramCode diagram
 
 private def backendBinders (inhabitedQubit : Bool := false) : String :=
   "{qasmM : Type → Type} {qasmQubit qasmError : Type} [Monad qasmM] " ++
@@ -1124,7 +1632,10 @@ private def compileProgram
     | .error error => throwError m!"cannot emit output type: {error}"
   elaborateGenerated inputs
   elaborateGenerated outputs
-  elaborateGenerated (programCommand name origins options program)
+  let metadata ← match programCommand name origins options program analysis with
+    | .ok source => pure source
+    | .error message => throwError message
+  elaborateGenerated metadata
   for statement in program.statements do
     match statement with
     | .defStatement subroutine arguments _ body =>
