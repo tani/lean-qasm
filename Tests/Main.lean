@@ -190,42 +190,14 @@ qasm! IndexedMeasurement {
   result = measured;
 }
 
-structure TestState where
-  nextQubit : Nat := 0
-  operations : Array String := #[]
-  deriving Repr
+qasm! ScheduledMeasurements {
+  OPENQASM 3.0;
+  output bit[3] result;
+  qubit[3] q;
+  result = measure q;
+}
 
-abbrev TestM := StateM TestState
-
-private def unitaryLabel : Unitary Nat -> String
-  | .U .. => "U"
-  | .gphase _ => "gphase"
-  | .named name _ _ => name
-  | .sequence _ => "sequence"
-  | .inverse operation => "inv:" ++ unitaryLabel operation
-  | .power _ operation => "pow:" ++ unitaryLabel operation
-  | .controlled _ controls operation =>
-      s!"ctrl{controls.size}:" ++ unitaryLabel operation
-
-instance : QuantumBackend TestM Nat String where
-  allocate count := do
-    let state <- get
-    set { state with nextQubit := state.nextQubit + count }
-    modify fun state =>
-      { state with operations := state.operations.push s!"allocate:{count}" }
-    pure (.ok (Array.range count |>.map (fun index => state.nextQubit + index)))
-  apply operation := do
-    modify fun state => { state with operations := state.operations.push (unitaryLabel operation) }
-    pure (.ok ())
-  measure qubit := do
-    modify fun state => { state with operations := state.operations.push s!"measure:{qubit}" }
-    pure (.ok (qubit % 2 == 1))
-  reset qubit := do
-    modify fun state => { state with operations := state.operations.push s!"reset:{qubit}" }
-    pure (.ok ())
-  barrier _ := do
-    modify fun state => { state with operations := state.operations.push "barrier" }
-    pure (.ok ())
+abbrev TestM := TraceBackend.M
 
 private def runNative :=
   Id.run ((NativeControl.run (qasmM := TestM) {}) |>.run {})
@@ -277,6 +249,10 @@ private def runRecursive :=
 
 private def runIndexedMeasurement :=
   Id.run ((IndexedMeasurement.run (qasmM := TestM) {}) |>.run {})
+
+private def runScheduledMeasurements :=
+  Id.run ((ScheduledMeasurements.run (qasmM := TraceBackend.M) {}) |>.run
+    (TraceBackend.initial #[true, false, true] (.constant false)))
 
 private def testNativeControl : IO Unit := do
   match runNative.1 with
@@ -452,6 +428,19 @@ private def testIndexedMeasurement : IO Unit := do
       assertTrue (outputs.result.toNat == 3)
         "measurement did not update the selected classical bit"
 
+private def testScheduledMeasurements : IO Unit := do
+  match runScheduledMeasurements.1 with
+  | .error error => throw (IO.userError s!"scheduled-measurement program returned an error: {repr error}")
+  | .ok outputs =>
+      assertTrue (outputs.result.toNat == 5)
+        "scheduled measurement outcomes were not decoded in qubit order"
+  assertTrue (runScheduledMeasurements.2.operations ==
+      #["allocate:3", "measure:0", "measure:1", "measure:2"])
+    "trace backend did not record scheduled measurements in execution order"
+  assertTrue (runScheduledMeasurements.2.observedMeasurements ==
+      #[(0, true), (1, false), (2, true)])
+    "trace backend did not retain measured values"
+
 private def testRuntimeValues : IO Unit := do
   assertTrue ((Value.integerLiteral "0xff").asInt == 255) "hex literal conversion failed"
   assertTrue ((Value.binary "+" (.integer 20) (.integer 22)).asInt == 42)
@@ -574,6 +563,7 @@ def run : IO Unit := do
   testModifiedUserGate
   testRecursiveSubroutine
   testIndexedMeasurement
+  testScheduledMeasurements
   testRuntimeValues
   testFrontendRoundTrip
   testCapabilityBoundary

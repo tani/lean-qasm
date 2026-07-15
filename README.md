@@ -120,6 +120,24 @@ class QASM.QuantumBackend (m : Type u -> Type v) (Qubit Error : outParam (Type u
   barrier : QASM.Barrier Qubit -> m (Except Error Unit)
 ```
 
+### Trace backend
+
+`TraceBackend` is a deterministic state-and-log backend for running generated
+programs without a device integration:
+
+```lean
+let (result, trace) := TraceBackend.run
+  (Example.run (qasmM := TraceBackend.M) { limit := SInt.ofInt 41 })
+
+let (quantumResult, quantumTrace) := TraceBackend.run
+  (Bell.run (qasmM := TraceBackend.M) {})
+```
+
+`TraceBackend.State.operations` records allocation, unitary, reset, barrier, and
+measurement labels. `TraceBackend.initial #[...]` supplies deterministic
+measurement outcomes. The backend records execution effects; it does not model
+physical quantum state.
+
 Qubit allocation, gates and modifiers, measurement, reset, and barriers are
 delegated through this interface. Classical expressions, arrays and slices,
 subroutines, aliases, casts, complex values, ranges, and structured control
