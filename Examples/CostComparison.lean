@@ -73,14 +73,14 @@ human circuit author needs to notice before assigning hardware-specific weights.
 def directMetrics := QASM.Cost.measure DirectRemoteCNOT.program
 def routedMetrics := QASM.Cost.measure RoutedRemoteCNOT.program
 
-example : directMetrics.allocations = 1 := by native_decide
-example : routedMetrics.allocations = 1 := by native_decide
-example : directMetrics.allocatedQubits = 3 := by native_decide
-example : routedMetrics.allocatedQubits = 3 := by native_decide
-example : directMetrics.applications = 2 := by native_decide
-example : routedMetrics.applications = 5 := by native_decide
+example : directMetrics.allocations = 1 := by decide
+example : routedMetrics.allocations = 1 := by decide
+example : directMetrics.allocatedQubits = 3 := by decide
+example : routedMetrics.allocatedQubits = 3 := by decide
+example : directMetrics.applications = 2 := by decide
+example : routedMetrics.applications = 5 := by decide
 
-example: directMetrics.applications < routedMetrics.applications := by native_decide
+example : directMetrics.applications < routedMetrics.applications := by decide
 
 #eval directMetrics
 #eval routedMetrics

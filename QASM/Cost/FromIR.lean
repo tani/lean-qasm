@@ -15,12 +15,16 @@ body. Call sites contribute their own counters but never expand those declaratio
 the measure deterministic and total even when subroutines are recursive. External and unsupported
 nodes are recorded rather than rejected.
 
+The folds are ordinary total definitions. Process sequences and switch cases use explicit list
+visitors so Lean can see that every recursive call consumes a strict substructure; this keeps the
+projection reducible in the kernel as well as executable through compiled evaluation.
+
 ```lean
 namespace QASM.Cost
 
 open QASM.IR
 
-partial def costCircuit : Circuit → CostM Unit
+def costCircuit : Circuit → CostM Unit
   | .identity _ => pure ()
   | .primitive _ => charge { applications := 1 }
   | .compose first second => costCircuit first *> costCircuit second
@@ -44,32 +48,42 @@ def costOp : Op → CostM Unit
   | .emitExtern _ => charge { externCalls := 1 }
   | .unsupported _ _ => charge { unsupported := 1 }
 
-partial def costProc : Proc → CostM Unit
-  | .skip => pure ()
-  | .operation op => costOp op
-  | .sequence steps => steps.forM costProc
-  | .scope _ body => costProc body
-  | .branch _ thenBranch elseBranch => do
-      charge { branches := 1 }
-      costProc thenBranch
-      match elseBranch with
-      | some body => costProc body
-      | none => pure ()
-  | .switch _ cases default => do
-      charge { branches := 1 }
-      cases.forM (fun | .mk _ body => costProc body)
-      match default with
-      | some body => costProc body
-      | none => pure ()
-  | .forLoop _ _ body => charge { loops := 1 } *> costProc body
-  | .whileLoop _ body => charge { loops := 1 } *> costProc body
-  | .breakLoop => pure ()
-  | .continueLoop => pure ()
-  | .returnValue value =>
-      match value with
-      | some _ => charge { classicalOps := 1 }
-      | none => pure ()
-  | .endProgram => pure ()
+mutual
+  def costProc : Proc → CostM Unit
+    | .skip => pure ()
+    | .operation op => costOp op
+    | .sequence steps => costProcList steps.toList
+    | .scope _ body => costProc body
+    | .branch _ thenBranch elseBranch => do
+        charge { branches := 1 }
+        costProc thenBranch
+        match elseBranch with
+        | some body => costProc body
+        | none => pure ()
+    | .switch _ cases default => do
+        charge { branches := 1 }
+        costSwitchCaseList cases.toList
+        match default with
+        | some body => costProc body
+        | none => pure ()
+    | .forLoop _ _ body => charge { loops := 1 } *> costProc body
+    | .whileLoop _ body => charge { loops := 1 } *> costProc body
+    | .breakLoop => pure ()
+    | .continueLoop => pure ()
+    | .returnValue value =>
+        match value with
+        | some _ => charge { classicalOps := 1 }
+        | none => pure ()
+    | .endProgram => pure ()
+
+  private def costProcList : List Proc → CostM Unit
+    | [] => pure ()
+    | proc :: rest => costProc proc *> costProcList rest
+
+  private def costSwitchCaseList : List SwitchCase → CostM Unit
+    | [] => pure ()
+    | .mk _ body :: rest => costProc body *> costSwitchCaseList rest
+end
 
 def measure (program : Program) : Metrics :=
   let action : CostM Unit := do
