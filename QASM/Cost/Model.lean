@@ -103,9 +103,9 @@ instance : Add OperationCounts where
 ## Resource estimates
 
 Resource estimates use three disjoint records. `OracleCalls` captures QSVT-level algorithmic
-operations; `GateCounts` captures an elementary-gate view such as CSD; `Workspace` captures peak
-space rather than a cumulative operation count. Their combination adds calls and gates but takes
-the maximum workspace requirement.
+operations as specified by [^gilyen2018]; `GateCounts` captures an elementary-gate view such as
+CSD [^mottonen2004]; `Workspace` captures peak space rather than a cumulative operation count.
+Their combination adds calls and gates but takes the maximum workspace requirement.
 
 ```lean
 structure OracleCalls where
@@ -166,13 +166,14 @@ instance : Add Resources where
 
 ## Literature-aligned plans
 
-The constructors expose their assumptions rather than hiding them in a scalar. An alternating
-QSVT phase sequence of length $`n`$ has $`n`$ total calls chosen from $`U`$ and $`U^\dagger`$;
+The constructors expose their assumptions rather than hiding them in a scalar. The alternating
+phase sequence of [^gilyen2018] with length $`n`$ has $`n`$ total calls chosen from $`U`$ and
+$`U^\dagger`$;
 the alternating order gives $`\lceil n/2 \rceil`$ calls to $`U`$ and $`\lfloor n/2 \rfloor`$ to
 $`U^\dagger`$. It also needs $`n`$ calls to each projector-controlled NOT family, $`n`$ phase
 gates, and one ancillary qubit. `csdGeneralUnitary` records the CSD paper's reported gate counts
-for an unrestricted $`n`$-qubit unitary. It is a synthesis bound, not a claim that every IR
-application has already been decomposed this way.
+for an unrestricted $`n`$-qubit unitary [^mottonen2004]. It is a synthesis bound, not a claim that
+every IR application has already been decomposed this way.
 
 ```lean
 def Resources.qsvtAlternatingPhase (steps : Nat) : Resources :=
@@ -221,6 +222,13 @@ def charge (delta : Report) : CostM Unit :=
 
 end QASM.Cost
 ```
+
+[^gilyen2018]: A. Gilyén, Y. Su, G. H. Low, and N. Wiebe, "Quantum singular value transformation
+    and beyond: Exponential improvements for quantum matrix arithmetics," arXiv:1806.01838, 2018.
+    [Online]. Available: <https://arxiv.org/abs/1806.01838>.
+[^mottonen2004]: M. Möttönen, J. J. Vartiainen, V. Bergholm, and M. M. Salomaa, "Quantum circuits
+    for general multi-qubit gates," arXiv:quant-ph/0404089, 2004. [Online]. Available:
+    <https://arxiv.org/abs/quant-ph/0404089>.
 
 <!--
 vim: set filetype=markdown :

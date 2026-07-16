@@ -101,11 +101,11 @@ backend-specific model can later turn that difference into depth, fidelity, or d
 ## Keeping algorithmic and synthesized costs distinct
 
 The same resource vector can document a cost model before an OpenQASM program exists. For an
-alternating QSVT sequence of length five, the unitary calls alternate as three uses of $`U`$ and
-two uses of $`U^\dagger`$; each projector-controlled NOT family and the phase-gate family occur
-five times, and the construction requires one ancillary qubit. These are algorithmic costs, so
-they should not be mistaken for a CNOT count without an implementation of `U` and its projector
-oracles.
+alternating QSVT sequence of length five [^gilyen2018], the unitary calls alternate as three uses
+of $`U`$ and two uses of $`U^\dagger`$; each projector-controlled NOT family and the phase-gate
+family occur five times, and the construction requires one ancillary qubit. These are algorithmic
+costs, so they should not be mistaken for a CNOT count without an implementation of `U` and its
+projector oracles.
 
 ```lean
 def qsvtFiveSteps := QASM.Cost.Resources.qsvtAlternatingPhase 5
@@ -119,9 +119,10 @@ example : qsvtFiveSteps.workspace.peakAncillaQubits = 1 := by decide
 ```
 
 Cosine-sine decomposition instead starts with an unrestricted $`n`$-qubit unitary and reports
-the synthesized elementary-gate totals. For three qubits its formula gives 48 CNOTs and 64
-one-qubit gates. This is a whole-unitary synthesis result; it is not comparable directly with the
-five QSVT steps above, because their `U` calls still stand for unspecified subcircuits.
+the synthesized elementary-gate totals [^mottonen2004]. For three qubits its formula gives 48
+CNOTs and 64 one-qubit gates. This is a whole-unitary synthesis result; it is not comparable
+directly with the five QSVT steps above, because their `U` calls still stand for unspecified
+subcircuits.
 
 ```lean
 def csdThreeQubits := QASM.Cost.Resources.csdGeneralUnitary 3
@@ -132,6 +133,13 @@ example : csdThreeQubits.gates.oneQubit = 64 := by decide
 #eval qsvtFiveSteps
 #eval csdThreeQubits
 ```
+
+[^gilyen2018]: A. Gilyén, Y. Su, G. H. Low, and N. Wiebe, "Quantum singular value transformation
+    and beyond: Exponential improvements for quantum matrix arithmetics," arXiv:1806.01838, 2018.
+    [Online]. Available: <https://arxiv.org/abs/1806.01838>.
+[^mottonen2004]: M. Möttönen, J. J. Vartiainen, V. Bergholm, and M. M. Salomaa, "Quantum circuits
+    for general multi-qubit gates," arXiv:quant-ph/0404089, 2004. [Online]. Available:
+    <https://arxiv.org/abs/quant-ph/0404089>.
 
 <!--
 vim: set filetype=markdown :

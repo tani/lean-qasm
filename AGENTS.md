@@ -316,6 +316,24 @@ Split a large formula into multiple fenced `math` blocks or introduce named inte
 
 Color should be used sparingly. Do not rely on a large number of separately colored fragments rendering reliably.
 
+### Footnote citations
+
+When adding or updating external literature citations in GitHub Markdown, use GFM footnote syntax
+rather than inline URLs or reference-style links. Give every footnote a stable, descriptive key.
+Use IEEE style for the bibliographic sentence in the footnote definition:
+
+```md
+The construction follows [^gilyen2018].
+
+[^gilyen2018]: A. Gilyén, Y. Su, G. H. Low, and N. Wiebe, "Quantum singular value transformation
+    and beyond," arXiv:1806.01838, 2018. [Online]. Available: <https://arxiv.org/abs/1806.01838>.
+```
+
+Define each cited footnote in the same rendered document. For LiterateLean modules, place footnote
+definitions after the final closing Lean fence and immediately before the required canonical
+footer, so the footer remains the final non-whitespace content. Cite the primary paper or other
+authoritative source that supports the adjacent claim; do not add a reference merely as decoration.
+
 ### Validation requirements
 
 When adding or modifying GitHub Markdown mathematics:

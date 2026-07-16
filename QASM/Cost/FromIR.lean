@@ -16,7 +16,7 @@ standard one-qubit primitive contributes one one-qubit gate. Every remaining pri
 retained as `otherPrimitive`, rather than being assigned an unjustified CNOT decomposition.
 QSVT's `U`, `U†`, and projector-controlled NOT resources cannot be recovered from ordinary
 OpenQASM names, so they stay zero in this structural projection and are supplied explicitly with
-`Resources.qsvtAlternatingPhase` when the algorithmic contract is known.
+`Resources.qsvtAlternatingPhase` when the algorithmic contract from [^gilyen2018] is known.
 
 Gate and subroutine declaration bodies contribute once as program structure before the main
 body. Call sites contribute their own counters but never expand those declarations, which keeps
@@ -119,6 +119,10 @@ def measure (program : Program) : Report :=
 
 end QASM.Cost
 ```
+
+[^gilyen2018]: A. Gilyén, Y. Su, G. H. Low, and N. Wiebe, "Quantum singular value transformation
+    and beyond: Exponential improvements for quantum matrix arithmetics," arXiv:1806.01838, 2018.
+    [Online]. Available: <https://arxiv.org/abs/1806.01838>.
 
 <!--
 vim: set filetype=markdown :
