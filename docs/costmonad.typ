@@ -6,8 +6,8 @@
   // Each level-one heading is an actual slide, not a section divider.
   config-common(new-section-slide-fn: none),
   config-info(
-    title: [Cost Monad 入門],
-    subtitle: [計算の結果と「かかった量」を一緒に扱う],
+    title: [Lean QASM の静的コスト報告],
+    subtitle: [canonical IR を階層的な Report に写す],
     author: [Lean QASM],
     date: datetime.today(),
   ),
@@ -18,45 +18,45 @@
   font: "Hiragino Sans", lang: "ja"
 )
 
-= Cost Monad 入門
+= Lean QASM の静的コスト報告
 
-*計算結果にコストを添えると、プログラムの構造を保ったまま資源を数えられる。*
+*実行せずに canonical IR をたどり、異なる単位を混ぜずに資源を報告する。*
 
 #v(1em)
 
-このスライドでは、Cost Monad を「値」と「加算できる記録」を結ぶ小さな抽象化として導入し、
-Lean QASM の静的メトリクスにどう使われるかを見る。
+このスライドでは、加算可能な記録を合成する考え方から始め、Lean QASM が
+`StateM Report` で静的コストを集める現在の実装を見る。
 
-= なぜ戻り値だけでは足りないのか
+= なぜ単一の数値だけでは足りないのか
 
-ある計算を実行すると、値だけでなく時間・ログ・消費電力・ゲート数なども生じる。
+同じプログラムでも、宣言数・制御構造・操作数・CNOT数・補助量子ビット数は別の単位である。
 
 #grid(
   columns: (1fr, 1fr),
   column-gutter: 1.2em,
 [
-  *普通の関数*
+  *単一スカラー*
 
-  `compile : Source -> Program`
+  `cost : Nat`
 
-  結果の `Program` は得られるが、
-  途中で何をどれだけ使ったかは捨てられる。
+  CNOT数と分岐数を足す重み付けを
+  暗黙に選んでしまう。
 ],
 [
-  *コストつきの関数*
+  *階層的な報告*
 
-  `compile : Source -> Cost Program`
+  `Report`
 
-  同じ結果とともに、計算で集めた
-  メトリクスを返す。
+  単位ごとに独立して記録し、
+  重み付けは利用者が後で決める。
 ])
 
-*要点:* コスト計測を各関数の戻り値に手作業で織り込まず、
-合成の規則を一度だけ定める。
+*要点:* 計測の合成規則と、何を数えるかを分離する。
 
-= Cost は「値 × コスト」である
+= 加算可能な記録という考え方
 
-最も単純な Cost Monad は、値 `alpha` と自然数コストを組にする。
+最も単純な Cost Monad は、値 `alpha` と自然数コストを組にする。これは導入用の
+モデルであり、現行Lean QASMの実装は後述する `StateM Report` である。
 
 #block(fill: rgb("#f1f5f9"), inset: 0.8em, radius: 5pt)[
   $ "Cost" alpha = alpha times "Nat" $
@@ -165,8 +165,7 @@ do
 = QASM の静的コスト報告では StateM を使う
 
 Lean QASM では、コストは実行結果に添えるのではなく、走査中の `Report` 状態として集める。
-`Report` は宣言一覧、プログラム形状、操作数、資源見積りを別々の入れ子レコードに持つため、
-たとえば CNOT 数と分岐数を同じスカラーへ混ぜない。
+`Report` は異なる単位を入れ子レコードに分けるため、CNOT 数と分岐数を混ぜない。
 
 ```lean
 namespace QASM.Cost
@@ -177,10 +176,56 @@ def charge (delta : Report) : CostM Unit :=
   modify fun cost => cost + delta
 ```
 
-`charge` は値を返さず、現在の集計値だけを更新する。走査器は知っている区分だけを指定する。
-たとえば `h` は `resources.gates.oneQubit`、`cx` は `resources.gates.cnot`、
-分岐は `shape.branchNodes` に記録する。QSVT の `U` 呼出しのように、OpenQASM の構造から
-判定できない資源は `resources.oracle` へ明示的な計画として加える。
+`charge` は値を返さず、現在の集計値だけを更新する。走査器は根拠を持つ区分だけを指定する。
+
+= Report は四つの責務を分ける
+
+#grid(
+  columns: (1fr, 1fr, 1fr, 1fr),
+  column-gutter: 0.55em,
+[
+  *`declarations`*
+
+  `gates`
+
+  `subroutines`
+
+  `externs`
+],
+[
+  *`shape`*
+
+  `allocationSites`
+
+  `branchNodes`
+
+  `loopNodes`
+],
+[
+  *`operations`*
+
+  `applications`
+
+  `measurements`
+
+  `classical`
+],
+[
+  *`resources`*
+
+  `oracle`
+
+  `gates`
+
+  `workspace`
+])
+
+#block(fill: rgb("#ecfdf5"), inset: 0.75em, radius: 5pt)[
+  *設計上の境界*
+
+  `resources.oracle` はアルゴリズムの約束、`resources.gates` は可視な素ゲート、
+  `resources.workspace` はピーク空間である。互いに自動換算しない。
+]
 
 = 合成規則は IR の木構造に対応する
 
@@ -188,10 +233,13 @@ def charge (delta : Report) : CostM Unit :=
 子ノードの計測を順に合成できる。
 
 ```lean
-partial def costCircuit : Circuit -> CostM Unit
+def costCircuit : Circuit → CostM Unit -- 本体からの抜粋
+  | .primitive primitive => charge {
+      operations := { applications := 1 }
+      resources := primitiveResources primitive.kind }
   | .compose first second => costCircuit first *> costCircuit second
   | .tensor first second  => costCircuit first *> costCircuit second
-  | .primitive _          => charge { operations := { applications := 1 } }
+  | .unsupported _ _ _ _  => charge { operations := { unsupported := 1 } }
 ```
 
 #block(fill: rgb("#ecfdf5"), inset: 0.75em, radius: 5pt)[
@@ -201,54 +249,103 @@ partial def costCircuit : Circuit -> CostM Unit
   バックエンドや量子状態には依存しない。
 ]
 
-= 「何を数えるか」は Monad の外で決める
+= Op ごとに根拠のある区分だけを加算する
 
-Monad が保証するのは *蓄積の仕組み* であって、メトリクスの意味ではない。
+```lean
+def costOp : Op → CostM Unit -- 本体からの抜粋
+  | .apply gate _ => charge {
+      operations := { applications := 1 }
+      resources := primitiveResources gate.target }
+  | .allocate decl => charge {
+      shape := { allocationSites := 1, allocatedQubits := decl.size } }
+  | .measure _ _ => charge { operations := { measurements := 1 } }
+  | .call _ _ => charge { operations := { subroutineCalls := 1 } }
+  | .unsupported _ _ => charge { operations := { unsupported := 1 } }
+```
+
+この投影は `QASM.Execution.run` を呼ばない。ループ本体と各分岐本体は一度だけ訪問し、
+反復回数・実行時間・バックエンドの分解は推定しない。
+
+= 資源は同じ Report に併置するが、換算しない
+
+`resources` の三つの部分は、同じ加算器で運べても意味は異なる。`measure` が自動で
+埋められるのは、canonical IR に現れる `gates` の一部だけである。
 
 #grid(
   columns: (1fr, 1fr, 1fr),
   column-gutter: 0.8em,
 [
-  *時間モデル*
+  *`oracle`*
 
-  各操作に推定時間を割り当てる。
+  QSVT の `U`、`U†`、
+
+  射影制御NOTの呼出し。
 ],
 [
-  *回路モデル*
+  *`gates`*
 
-  ゲート、測定、制御、深さを数える。
+  CNOT、1量子ビット、
+
+  その他の可視primitive。
 ],
 [
-  *安全な解析*
+  *`workspace`*
 
-  実行せず、構文木だけから上界を求める。
+  `peakAncillaQubits`。
+
+  加算でなく最大値を取る。
 ])
 
-同じ `bind` / `do` の形を保ちつつ、`Nat` を `Report` や重みつきコストへ交換できる。
+= QSVT 計画は明示的な Resources として加える
 
-= Monad 則が「合成しても意味が変わらない」ことを支える
+`Resources.qsvtAlternatingPhase n` は、長さ `n` の交互位相列を次の形で記録する。
 
-Cost の足し算が結合的で、`0` が単位元なら、計算の括弧付けを変えても意味は変わらない。
+#grid(
+  columns: (1fr, 1fr),
+  column-gutter: 1.2em,
+[
+  *`oracle`*
+
+  `unitary = (n + 1) / 2`
+
+  `inverseUnitary = n / 2`
+
+  二種の射影制御NOTは各 `n`
+],
+[
+  *`gates` と `workspace`*
+
+  `oneQubit = n`
+
+  `peakAncillaQubits = 1`
+])
+
+この計画をCNOT数へ換算するには、`U` と射影oracleの実装を別途与える必要がある。
+
+= Report の合成は成分ごとに定義する
+
+`Report.add` は各所有区分の `Add` を使う。宣言・形状・操作・oracle・gate数は加算し、
+補助量子ビットの要求だけは最大値を取る。
 
 #block(fill: rgb("#f1f5f9"), inset: 0.7em, radius: 5pt)[
-  $ (c_1 + c_2) + c_3 = c_1 + (c_2 + c_3) $
+  $ (r_1 + r_2) + r_3 = r_1 + (r_2 + r_3) $
 
-  $ 0 + c = c = c + 0 $
+  $ 0 + r = r = r + 0 $
 ]
 
-- 左・右単位律は `pure` の余計なコストがないことに対応する。
-- 結合律は、長いパイプラインを部分ごとに分けて実装してもよいことを保証する。
-- したがって Cost Monad は、局所的な計測関数を大きな解析へ安全に組み立てる道具になる。
+- カウンタの合成は `Nat` の加算、workspace の合成は `max` である。
+- どちらも結合的で `0` を単位元に持つため、走査の括弧付けで報告が変わらない。
+- したがって `StateM Report` は、局所的な計測関数を大きな静的解析へ安全に組み立てられる。
 
 = まとめ
 
-*Cost Monad は「値の計算」と「加算できる観測」を分離しながら、一緒に合成する。*
+*Lean QASM は canonical IR の構造を `StateM Report` で、単位を保ったまま集計する。*
 
 #block(fill: rgb("#eef2ff"), inset: 0.9em, radius: 5pt)[
-  1. `pure` は値をコスト 0 で持ち上げる。
-  2. `bind` は値をつなぎ、コストを合算する。
-  3. `do` 記法で大きな計測処理も普通のプログラムとして書ける。
-  4. QASM では同じ発想を `StateM Report` と canonical IR の走査に使う。
+  1. `Report` は `declarations`、`shape`、`operations`、`resources` を分離する。
+  2. `measure` はIRを一度たどり、実行や再帰的なcall展開をしない。
+  3. 可視なprimitiveは `resources.gates` へ、QSVT計画は `resources.oracle` へ記録する。
+  4. `workspace` はピーク値なので `max` で合成する。
 ]
 
-次に考えるべき問いは、*どのメトリクスが目的に対して意味を持ち、どこまでを静的に数えるか* である。
+次に考えるべき問いは、*どの資源を具体的なハードウェアコストへ換算し、どのまま報告として残すか* である。
