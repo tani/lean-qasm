@@ -4,6 +4,7 @@
     import QASM.Diagram
     import QASM.IR.Program
     import QASM.IR.Equiv
+    import QASM.Cost.FromIR
     import QASM.Execution.Interpreter
     import QASM.Diagram.ProgramHtmlEval
     import QASM.Emit
@@ -33,12 +34,13 @@ graph and the ownership boundaries expressed by the directory structure:
    that model without depending on parsing or elaboration.
 3. `IR.Program` defines the canonical compilation unit and `IR.Equiv` defines the
    equality relations used by emitters and round-trip checks.
-4. `Execution.Interpreter` evaluates canonical IR through the runtime backend boundary.
-5. `Diagram.ProgramHtmlEval` projects immutable IR into diagrams, and `Emit` exposes
+4. `Cost.FromIR` measures static complexity cost from canonical IR without executing it.
+5. `Execution.Interpreter` evaluates canonical IR through the runtime backend boundary.
+6. `Diagram.ProgramHtmlEval` projects immutable IR into diagrams, and `Emit` exposes
    canonical OpenQASM rendering.
-6. `Frontend`, `Frontend.Semantics`, and `Frontend.Typing` parse and validate source while
+7. `Frontend`, `Frontend.Semantics`, and `Frontend.Typing` parse and validate source while
    preserving the distinction between source syntax and resolved IR.
-7. `Elaboration.BlockParser` captures inline OpenQASM before Lean tokenization;
+8. `Elaboration.BlockParser` captures inline OpenQASM before Lean tokenization;
    `Elaboration` expands includes, lowers checked source to `QASM.IR.Program`, declares
    typed input/output structures, and emits the `execute` wrapper around
    `QASM.Execution.run`.
@@ -54,6 +56,7 @@ flowchart TD
     QASM --> Runtime
     QASM --> Frontend
     QASM --> IR["IR.Program / IR.Equiv"]
+    QASM --> Cost
     QASM --> Execution
     QASM --> Diagram
     QASM --> Emit
@@ -62,6 +65,7 @@ flowchart TD
     Semantics --> Typing
     Typing --> Elaboration
     IR --> Execution
+    IR --> Cost
     Runtime --> Execution
     Execution --> Elaboration
     IR --> Diagram

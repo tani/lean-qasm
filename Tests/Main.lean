@@ -77,8 +77,8 @@ end QASMTests
 
 ### Quantum effects and callable fixtures
 
-These programs cover backend operations, user gates, subroutines, mutable array-reference
-writeback, recursive includes, and fixed-shape arrays.
+These programs cover backend operations, user gates, static complexity measurement,
+subroutines, mutable array-reference writeback, recursive includes, and fixed-shape arrays.
 
 ```lean
 namespace QASMTests
@@ -102,6 +102,29 @@ qasm! PortableQuantum {
   reset q[0];
   c = measure q;
   result = c;
+}
+
+qasm! ComplexityCostProgram {
+  OPENQASM 3.0;
+  include "stdgates.inc";
+  gate pair a, b {
+    h a;
+    cx a, b;
+  }
+  qubit[2] q;
+  bit[2] c;
+  int[32] counter = 0;
+  for uint i in [0:2] {
+    counter += 1;
+  }
+  if (counter == 3) {
+    counter += 1;
+  }
+  pair q[0], q[1];
+  h q[0];
+  barrier q;
+  reset q[1];
+  measure q -> c;
 }
 
 qasm! NativeSubroutine {
@@ -351,12 +374,12 @@ end QASMTests
 
 ```
 
-## Core execution contracts
+## Core execution and analysis contracts
 
-These assertions cover structured control signals, typed input encoding, quantum
-delegation, subroutine returns, mutable reference writeback, recursive includes, and array
-semantics. They check results and backend effects rather than implementation details of
-the interpreter.
+These assertions cover structured control signals, typed input encoding, quantum delegation,
+static complexity projection, subroutine returns, mutable reference writeback, recursive
+includes, and array semantics. They check observable results, backend effects, and canonical IR
+structure rather than implementation details.
 
 ```lean
 namespace QASMTests
@@ -375,6 +398,7 @@ private def testInput : IO Unit := do
       assertTrue (outputs.result.toInt == 42) "generated typed Inputs value was not bound"
 
 private def testQuantumBackend : IO Unit := do
+
   match runQuantum.1 with
   | .error _ => throw (IO.userError "portable quantum program returned an error")
   | .ok outputs =>
@@ -390,6 +414,25 @@ private def testQuantumBackend : IO Unit := do
   assertTrue (operations.contains "reset:0") "reset was not delegated"
   assertTrue (operations.contains "measure:0" && operations.contains "measure:1")
     "measurement was not delegated per qubit"
+
+private def testComplexityCost : IO Unit := do
+  let cost := QASM.Cost.measureCost ComplexityCostProgram.program
+  assertTrue (cost.gateDeclarations == 1) s!"gateDeclarations {cost.gateDeclarations} != 1"
+  assertTrue (cost.subroutineDeclarations == 0)
+    s!"subroutineDeclarations {cost.subroutineDeclarations} != 0"
+  assertTrue (cost.externDeclarations == 0) s!"externDeclarations {cost.externDeclarations} != 0"
+  assertTrue (cost.allocations == 1) s!"allocations {cost.allocations} != 1"
+  assertTrue (cost.allocatedQubits == 2) s!"allocatedQubits {cost.allocatedQubits} != 2"
+  assertTrue (cost.applications == 4) s!"applications {cost.applications} != 4"
+  assertTrue (cost.measurements == 1) s!"measurements {cost.measurements} != 1"
+  assertTrue (cost.resets == 1) s!"resets {cost.resets} != 1"
+  assertTrue (cost.barriers == 1) s!"barriers {cost.barriers} != 1"
+  assertTrue (cost.classicalOps == 4) s!"classicalOps {cost.classicalOps} != 4"
+  assertTrue (cost.branches == 1) s!"branches {cost.branches} != 1"
+  assertTrue (cost.loops == 1) s!"loops {cost.loops} != 1"
+  assertTrue (cost.subroutineCalls == 0) s!"subroutineCalls {cost.subroutineCalls} != 0"
+  assertTrue (cost.externCalls == 0) s!"externCalls {cost.externCalls} != 0"
+  assertTrue (cost.unsupported == 0) s!"unsupported {cost.unsupported} != 0"
 
 private def testSubroutine : IO Unit := do
   match runSubroutine.1 with
@@ -821,6 +864,7 @@ def run : IO Unit := do
   testNativeControl
   testInput
   testQuantumBackend
+  testComplexityCost
   testSubroutine
   testMutableArrayReference
   testFileAndInclude
