@@ -9,7 +9,7 @@ small `QuantumBackend` interface.
 flowchart LR
     Source["OpenQASM source"] --> Frontend["parse / check"]
     Frontend --> IR["canonical QASM.IR.Program"]
-    IR --> Execute["QASM.Codegen.run"]
+    IR --> Execute["QASM.Execution.run"]
     Execute --> Backend["QuantumBackend"]
     IR --> Emit["canonical OpenQASM"]
     IR --> Diagram["static circuit diagram"]
@@ -33,13 +33,13 @@ they extend:
 - `QASM/Frontend/` contains source semantics and type analysis;
 - `QASM/IR/` owns the canonical, resolved program representation;
 - `QASM/Lowering/` translates checked frontend programs into IR;
-- `QASM/Codegen/` quotes and interprets persistent IR;
+- `QASM/Execution/` interprets canonical IR through the portable backend boundary;
 - `QASM/Runtime/` contains concrete backend implementations, while `QASM/Runtime.lean`
   owns the portable value and backend boundary;
 - `QASM/Diagram/` owns the presentation model, IR projection, and HTML integration;
 - `QASM/Emit/` owns canonical OpenQASM serialization;
-- `QASM/Elaboration/` contains Lean command parsing, while `QASM/Elaboration.lean`
-  coordinates the complete compile-time pipeline.
+- `QASM/Elaboration/` contains Lean command parsing and IR quotation, while
+  `QASM/Elaboration.lean` coordinates the complete compile-time pipeline.
 
 Runnable examples live under `Examples/`; executable and standalone regression modules
 live under `Tests/`. The top-level `QASM.lean` remains the only public aggregation module.
@@ -82,7 +82,7 @@ The command creates:
   structured control flow, callable and gate declarations, target settings, and source
   metadata;
 - `Example.execute`, a typed boundary wrapper that encodes inputs, evaluates
-  `Example.program` through `QASM.Codegen.run`, and decodes outputs.
+  `Example.program` through `QASM.Execution.run`, and decodes outputs.
 
 ```lean
 #check Example.Inputs
@@ -179,7 +179,7 @@ physical quantum state.
 While interpreting the canonical IR, qubit allocation, gates and modifiers, measurement,
 reset, and barriers are delegated through this interface. Classical expressions, arrays
 and slices, subroutines, aliases, casts, complex values, ranges, and structured control
-flow are evaluated by `QASM.Codegen.run`.
+flow are evaluated by `QASM.Execution.run`.
 
 OpenQASM features whose meaning is explicitly backend-dependent are parsed and
 represented by the frontend, but portable elaboration rejects them with a

@@ -6,8 +6,8 @@
     import QASM.Frontend.Semantics
     import QASM.Frontend.Typing
     import QASM.Lowering.Program
-    import QASM.Codegen.Quotation
-    import QASM.Codegen.Interpreter
+    import QASM.Elaboration.Quotation
+    import QASM.Execution.Interpreter
     import Lean.Elab.Eval
 
     open scoped LiterateLean
@@ -20,7 +20,7 @@ parsing, semantic checks, type analysis, and lowering to a canonical `QASM.IR.Pr
 It then declares that IR value together with native input/output structures and a typed
 `execute` wrapper.
 
-The wrapper encodes boundary values, calls `QASM.Codegen.run`, and decodes the resulting
+The wrapper encodes boundary values, calls `QASM.Execution.run`, and decodes the resulting
 classical environment. Expressions, operations, callables, and structured control flow
 are interpreted from IR at runtime; allocation, unitaries, measurement, reset, and
 barriers cross `QuantumBackend`.
@@ -40,7 +40,7 @@ flowchart LR
         Program --> API["generated Inputs / Outputs / execute"]
     end
     subgraph RunTime["program execution time"]
-        API --> Interpreter["QASM.Codegen.run"]
+        API --> Interpreter["QASM.Execution.run"]
         Interpreter --> Backend["QuantumBackend"]
     end
 ```
@@ -155,7 +155,7 @@ private def executeCommand (name : String) (program : QASM.IR.Program) : String 
   let success := if outputFields.isEmpty then "return .ok {}" else
     "return .ok {\n" ++ indent (String.intercalate ",\n" outputFields.toList) ++ "\n}"
   let body :=
-    s!"let qasm_result ← QASM.Codegen.run {name}.program {arrayCode inputs}\n" ++
+    s!"let qasm_result ← QASM.Execution.run {name}.program {arrayCode inputs}\n" ++
     "match qasm_result with\n" ++
     "| .error error => return .error error\n" ++
     "| .ok qasm_values =>\n" ++ indent success

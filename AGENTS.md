@@ -13,7 +13,7 @@ For every affected `.lean` file:
 5. Put explanatory Markdown prose outside Lean fences. Explain contracts, invariants, data flow, failure behavior, and architectural boundaries—not a line-by-line paraphrase of the code.
 6. Put executable declarations only inside explicit ```` ```lean ```` fences. Namespace and section commands, including every matching `end`, must remain inside Lean fences.
 7. Split large modules into coherent sections with prose between fences. Do not hide an entire production module in one monolithic fence merely to satisfy the syntax.
-8. Keep prose synchronized with implementation changes. In particular, describe the canonical `QASM.IR.Program` pipeline and shared `QASM.Codegen.run` interpreter accurately; do not revive obsolete native-control-flow or `CheckedProgramInfo` descriptions.
+8. Keep prose synchronized with implementation changes. In particular, describe the canonical `QASM.IR.Program` pipeline and shared `QASM.Execution.run` interpreter accurately; do not revive obsolete native-control-flow or `CheckedProgramInfo` descriptions.
 9. Use MathJax for type, shape, algebraic, and invariant relationships, and Mermaid for
     data flow, state transitions, dependency boundaries, and execution phases. Add a
     visual only when it makes the contract easier to scan; keep prose beside it so the

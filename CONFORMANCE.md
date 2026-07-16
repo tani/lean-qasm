@@ -3,7 +3,7 @@
 LeanQASM targets the official `spec/v3.0.0` grammar. “Parsed” below means the
 standalone frontend has an AST node for the construct. “Lowered” means the `qasm!`
 command emits a resolved canonical `QASM.IR.Program` and a typed `execute` wrapper
-that evaluates it with `QASM.Codegen.run`. Target-only behavior is never silently
+that evaluates it with `QASM.Execution.run`. Target-only behavior is never silently
 guessed.
 
 The support boundary is explicit in the pipeline:
@@ -15,7 +15,7 @@ flowchart LR
     Checked --> Portable{"portable semantics?"}
     Portable -->|yes| IR["QASM.IR.Program"]
     Portable -->|target required| Diagnostic["capability diagnostic"]
-    IR --> Interpreter["QASM.Codegen.run"]
+    IR --> Interpreter["QASM.Execution.run"]
     Interpreter --> Backend["QuantumBackend effects"]
 ```
 
@@ -31,7 +31,7 @@ canonical IR.
 | Arrays | Lowered | Rank 1–7 fixed arrays, nested literals, default initialization, indexing, multidimensional slicing, concatenation, array references, `sizeof`, shape-preserving array casts, and typed I/O codecs |
 | Expressions | Lowered | Numeric/Boolean/bitwise operators, fixed-width casts, complex arithmetic, ranges and sets, constants, and the OpenQASM builtins represented by the 3.0 grammar |
 | Declarations and I/O | Lowered | Classical/quantum declarations, old-style `qreg`/`creg`, constants, aliases, typed `input`/`output`, scopes, assignment, and measurement assignment including indexed targets |
-| Control flow | Portable IR | QASM `for`, `if`, `while`, `break`, `continue`, and `end` lower to `QASM.IR.Proc` nodes interpreted by `QASM.Codegen.run`; iterator values are converted to the declared scalar type |
+| Control flow | Portable IR | QASM `for`, `if`, `while`, `break`, `continue`, and `end` lower to `QASM.IR.Proc` nodes interpreted by `QASM.Execution.run`; iterator values are converted to the declared scalar type |
 | Subroutines | Portable IR | `def`, scalar/qubit arguments, readonly/mutable array references with writeback, nested calls in expressions, return/measurement return, and direct recursion are retained as resolved IR declarations and calls |
 | Gates | Portable IR | `U`, `gphase`, intrinsic `stdgates.inc`, user gates, register broadcasting, and `inv`/`pow`/`ctrl`/`negctrl` lower to `QASM.IR.Circuit`; the interpreter constructs backend-facing `Unitary` trees |
 | Quantum instructions | Backend interface | The IR interpreter delegates allocation, unitary application, measurement, reset, and barrier to `QuantumBackend` |

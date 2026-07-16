@@ -4,6 +4,7 @@
     import QASM.Diagram
     import QASM.IR.Program
     import QASM.IR.Equiv
+    import QASM.Execution.Interpreter
     import QASM.Diagram.ProgramHtmlEval
     import QASM.Emit
     import QASM.Frontend
@@ -32,14 +33,15 @@ graph and the ownership boundaries expressed by the directory structure:
    that model without depending on parsing or elaboration.
 3. `IR.Program` defines the canonical compilation unit and `IR.Equiv` defines the
    equality relations used by emitters and round-trip checks.
-4. `Diagram.ProgramHtmlEval` projects immutable IR into diagrams, and `Emit` exposes
+4. `Execution.Interpreter` evaluates canonical IR through the runtime backend boundary.
+5. `Diagram.ProgramHtmlEval` projects immutable IR into diagrams, and `Emit` exposes
    canonical OpenQASM rendering.
-5. `Frontend`, `Frontend.Semantics`, and `Frontend.Typing` parse and validate source while
+6. `Frontend`, `Frontend.Semantics`, and `Frontend.Typing` parse and validate source while
    preserving the distinction between source syntax and resolved IR.
-6. `Elaboration.BlockParser` captures inline OpenQASM before Lean tokenization;
+7. `Elaboration.BlockParser` captures inline OpenQASM before Lean tokenization;
    `Elaboration` expands includes, lowers checked source to `QASM.IR.Program`, declares
    typed input/output structures, and emits the `execute` wrapper around
-   `QASM.Codegen.run`.
+   `QASM.Execution.run`.
 
 The order is architectural rather than cosmetic: visualization and runtime remain
 independent of parsing, canonical IR remains independent of Lean elaboration, and only the
@@ -52,12 +54,16 @@ flowchart TD
     QASM --> Runtime
     QASM --> Frontend
     QASM --> IR["IR.Program / IR.Equiv"]
+    QASM --> Execution
     QASM --> Diagram
     QASM --> Emit
     QASM --> Elaboration
     Frontend --> Semantics
     Semantics --> Typing
     Typing --> Elaboration
+    IR --> Execution
+    Runtime --> Execution
+    Execution --> Elaboration
     IR --> Diagram
     IR --> Emit
     Runtime --> Elaboration

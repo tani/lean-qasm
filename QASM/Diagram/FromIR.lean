@@ -337,7 +337,7 @@ private partial def procItems (wires : WireState) (names : Std.HashMap VarId Str
 ## Public extraction
 
 `ofProgram` joins the independent name, wire, and item passes. It reads immutable IR only,
-does not invoke `QASM.Codegen.run`, and returns the renderer's small `CircuitDiagram`
+does not invoke `QASM.Execution.run`, and returns the renderer's small `CircuitDiagram`
 model so HTML integration remains a separate instance module.
 
 ```lean

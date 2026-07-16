@@ -21,7 +21,7 @@ The instances preserve data constructor-for-constructor; they neither execute no
 normalize the program.
 
 ```lean
-namespace QASM.Codegen
+namespace QASM.Elaboration
 
 open Lean
 instance : ToExpr Float where
@@ -81,7 +81,7 @@ deriving instance ToExpr for QASM.IR.GateDecl
 deriving instance ToExpr for QASM.IR.SubroutineDecl
 deriving instance ToExpr for QASM.IR.Program
 
-end QASM.Codegen
+end QASM.Elaboration
 ```
 
 <!--

@@ -31,7 +31,7 @@ flowchart LR
 ```
 
 ```lean
-namespace QASM.Codegen
+namespace QASM.Execution
 
 open QASM.IR
 
@@ -693,7 +693,7 @@ def run [Monad m] [QASM.QuantumBackend m qubit backendError]
   | .error error => pure (.error error)
   | .ok (_, state) => pure (.ok state.values)
 
-end QASM.Codegen
+end QASM.Execution
 ```
 
 <!--
