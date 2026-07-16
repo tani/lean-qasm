@@ -77,7 +77,7 @@ end QASMTests
 
 ### Quantum effects and callable fixtures
 
-These programs cover backend operations, user gates, static complexity measurement,
+These programs cover backend operations, user gates, static cost metrics,
 subroutines, mutable array-reference writeback, recursive includes, and fixed-shape arrays.
 
 ```lean
@@ -104,7 +104,7 @@ qasm! PortableQuantum {
   result = c;
 }
 
-qasm! ComplexityCostProgram {
+qasm! CostMetricsProgram {
   OPENQASM 3.0;
   include "stdgates.inc";
   gate pair a, b {
@@ -415,24 +415,27 @@ private def testQuantumBackend : IO Unit := do
   assertTrue (operations.contains "measure:0" && operations.contains "measure:1")
     "measurement was not delegated per qubit"
 
-private def testComplexityCost : IO Unit := do
-  let cost := QASM.Cost.measureCost ComplexityCostProgram.program
-  assertTrue (cost.gateDeclarations == 1) s!"gateDeclarations {cost.gateDeclarations} != 1"
-  assertTrue (cost.subroutineDeclarations == 0)
-    s!"subroutineDeclarations {cost.subroutineDeclarations} != 0"
-  assertTrue (cost.externDeclarations == 0) s!"externDeclarations {cost.externDeclarations} != 0"
-  assertTrue (cost.allocations == 1) s!"allocations {cost.allocations} != 1"
-  assertTrue (cost.allocatedQubits == 2) s!"allocatedQubits {cost.allocatedQubits} != 2"
-  assertTrue (cost.applications == 4) s!"applications {cost.applications} != 4"
-  assertTrue (cost.measurements == 1) s!"measurements {cost.measurements} != 1"
-  assertTrue (cost.resets == 1) s!"resets {cost.resets} != 1"
-  assertTrue (cost.barriers == 1) s!"barriers {cost.barriers} != 1"
-  assertTrue (cost.classicalOps == 4) s!"classicalOps {cost.classicalOps} != 4"
-  assertTrue (cost.branches == 1) s!"branches {cost.branches} != 1"
-  assertTrue (cost.loops == 1) s!"loops {cost.loops} != 1"
-  assertTrue (cost.subroutineCalls == 0) s!"subroutineCalls {cost.subroutineCalls} != 0"
-  assertTrue (cost.externCalls == 0) s!"externCalls {cost.externCalls} != 0"
-  assertTrue (cost.unsupported == 0) s!"unsupported {cost.unsupported} != 0"
+private def testCostMetrics : IO Unit := do
+  let metrics := QASM.Cost.measure CostMetricsProgram.program
+  assertTrue (metrics.gateDeclarations == 1)
+    s!"gateDeclarations {metrics.gateDeclarations} != 1"
+  assertTrue (metrics.subroutineDeclarations == 0)
+    s!"subroutineDeclarations {metrics.subroutineDeclarations} != 0"
+  assertTrue (metrics.externDeclarations == 0)
+    s!"externDeclarations {metrics.externDeclarations} != 0"
+  assertTrue (metrics.allocations == 1) s!"allocations {metrics.allocations} != 1"
+  assertTrue (metrics.allocatedQubits == 2) s!"allocatedQubits {metrics.allocatedQubits} != 2"
+  assertTrue (metrics.applications == 4) s!"applications {metrics.applications} != 4"
+  assertTrue (metrics.measurements == 1) s!"measurements {metrics.measurements} != 1"
+  assertTrue (metrics.resets == 1) s!"resets {metrics.resets} != 1"
+  assertTrue (metrics.barriers == 1) s!"barriers {metrics.barriers} != 1"
+  assertTrue (metrics.classicalOps == 4) s!"classicalOps {metrics.classicalOps} != 4"
+  assertTrue (metrics.branches == 1) s!"branches {metrics.branches} != 1"
+  assertTrue (metrics.loops == 1) s!"loops {metrics.loops} != 1"
+  assertTrue (metrics.subroutineCalls == 0)
+    s!"subroutineCalls {metrics.subroutineCalls} != 0"
+  assertTrue (metrics.externCalls == 0) s!"externCalls {metrics.externCalls} != 0"
+  assertTrue (metrics.unsupported == 0) s!"unsupported {metrics.unsupported} != 0"
 
 private def testSubroutine : IO Unit := do
   match runSubroutine.1 with
@@ -864,7 +867,7 @@ def run : IO Unit := do
   testNativeControl
   testInput
   testQuantumBackend
-  testComplexityCost
+  testCostMetrics
   testSubroutine
   testMutableArrayReference
   testFileAndInclude

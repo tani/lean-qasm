@@ -34,7 +34,7 @@ graph and the ownership boundaries expressed by the directory structure:
    that model without depending on parsing or elaboration.
 3. `IR.Program` defines the canonical compilation unit and `IR.Equiv` defines the
    equality relations used by emitters and round-trip checks.
-4. `Cost.FromIR` measures static complexity cost from canonical IR without executing it.
+4. `Cost.FromIR` collects static cost metrics from canonical IR without executing it.
 5. `Execution.Interpreter` evaluates canonical IR through the runtime backend boundary.
 6. `Diagram.ProgramHtmlEval` projects immutable IR into diagrams, and `Emit` exposes
    canonical OpenQASM rendering.

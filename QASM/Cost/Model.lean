@@ -2,11 +2,11 @@
     import QASM.IR.Program
     open scoped LiterateLean
 
-# Complexity cost model
+# Static cost metrics
 
 The cost model is an immutable summary accumulated by a pure state computation. It records
 structural facts from canonical `QASM.IR.Program` values and has no execution runtime or quantum
-backend dependency. `CostM` therefore carries only `ComplexityCost`: every IR program is
+backend dependency. `CostM` therefore carries only `Metrics`: every IR program is
 measurable, including programs with unsupported or external nodes.
 
 The fields remain independent counters rather than a scalar score. A weighted total requires a
@@ -18,7 +18,7 @@ namespace QASM.Cost
 
 open QASM.IR
 
-structure ComplexityCost where
+structure Metrics where
   gateDeclarations : Nat := 0
   subroutineDeclarations : Nat := 0
   externDeclarations : Nat := 0
@@ -36,7 +36,7 @@ structure ComplexityCost where
   unsupported : Nat := 0
   deriving Repr, Inhabited, BEq
 
-protected def ComplexityCost.add (left right : ComplexityCost) : ComplexityCost :=
+protected def Metrics.add (left right : Metrics) : Metrics :=
   { gateDeclarations := left.gateDeclarations + right.gateDeclarations
     subroutineDeclarations := left.subroutineDeclarations + right.subroutineDeclarations
     externDeclarations := left.externDeclarations + right.externDeclarations
@@ -53,12 +53,12 @@ protected def ComplexityCost.add (left right : ComplexityCost) : ComplexityCost 
     externCalls := left.externCalls + right.externCalls
     unsupported := left.unsupported + right.unsupported }
 
-instance : Add ComplexityCost where
-  add := ComplexityCost.add
+instance : Add Metrics where
+  add := Metrics.add
 
-abbrev CostM := StateM ComplexityCost
+abbrev CostM := StateM Metrics
 
-def charge (delta : ComplexityCost) : CostM Unit :=
+def charge (delta : Metrics) : CostM Unit :=
   modify fun cost => cost + delta
 
 end QASM.Cost

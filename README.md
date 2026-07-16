@@ -13,7 +13,7 @@ flowchart LR
     Execute --> Backend["QuantumBackend"]
     IR --> Emit["canonical OpenQASM"]
     IR --> Diagram["static circuit diagram"]
-    IR --> Cost["complexity cost"]
+    IR --> Cost["static cost metrics"]
 ```
 
 The canonical IR is the shared boundary: execution, emission, visualization, and static cost
@@ -38,7 +38,7 @@ they extend:
 - `QASM/Runtime/` contains concrete backend implementations, while `QASM/Runtime.lean`
   owns the portable value and backend boundary;
 - `QASM/Diagram/` owns the presentation model, IR projection, and HTML integration;
-- `QASM/Cost/` measures static complexity cost from canonical IR without executing it;
+- `QASM/Cost/` collects static cost metrics from canonical IR without executing it;
 - `QASM/Emit/` owns canonical OpenQASM serialization;
 - `QASM/Elaboration/` contains Lean command parsing and IR quotation, while
   `QASM/Elaboration.lean` coordinates the complete compile-time pipeline.

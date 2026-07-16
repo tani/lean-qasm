@@ -3,7 +3,7 @@
     import QASM.IR.Program
     open scoped LiterateLean
 
-# Complexity cost from canonical IR
+# Cost metrics from canonical IR
 
 This projection folds immutable canonical IR without invoking `QASM.Execution.run` or a
 `QuantumBackend`. It counts source-level structural nodes: both branch arms and every switch
@@ -71,7 +71,7 @@ partial def costProc : Proc → CostM Unit
       | none => pure ()
   | .endProgram => pure ()
 
-def measureCost (program : Program) : ComplexityCost :=
+def measure (program : Program) : Metrics :=
   let action : CostM Unit := do
     charge {
       gateDeclarations := program.gates.size
