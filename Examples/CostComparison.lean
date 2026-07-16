@@ -68,26 +68,26 @@ The fixed `qasm!` declarations lower to canonical `QASM.IR.Program` values. The 
 projection counts one allocation in each program, but it exposes three extra gate
 applications and three extra literal CNOT gates in the routed form. This is exactly the
 structural difference a mapper or a human circuit author needs to notice before assigning
-hardware-specific weights. `oneQubitGates` and `cnotGates` are not a decomposition pass: they
+hardware-specific weights. `resources.gates.oneQubit` and `resources.gates.cnot` are not a decomposition pass: they
 only classify primitive nodes that are already visible in the canonical IR.
 
 ```lean
 def directMetrics := QASM.Cost.measure DirectRemoteCNOT.program
 def routedMetrics := QASM.Cost.measure RoutedRemoteCNOT.program
 
-example : directMetrics.allocations = 1 := by decide
-example : routedMetrics.allocations = 1 := by decide
-example : directMetrics.allocatedQubits = 3 := by decide
-example : routedMetrics.allocatedQubits = 3 := by decide
-example : directMetrics.applications = 2 := by decide
-example : routedMetrics.applications = 5 := by decide
-example : directMetrics.resources.oneQubitGates = 1 := by decide
-example : routedMetrics.resources.oneQubitGates = 1 := by decide
-example : directMetrics.resources.cnotGates = 1 := by decide
-example : routedMetrics.resources.cnotGates = 4 := by decide
+example : directMetrics.shape.allocationSites = 1 := by decide
+example : routedMetrics.shape.allocationSites = 1 := by decide
+example : directMetrics.shape.allocatedQubits = 3 := by decide
+example : routedMetrics.shape.allocatedQubits = 3 := by decide
+example : directMetrics.operations.applications = 2 := by decide
+example : routedMetrics.operations.applications = 5 := by decide
+example : directMetrics.resources.gates.oneQubit = 1 := by decide
+example : routedMetrics.resources.gates.oneQubit = 1 := by decide
+example : directMetrics.resources.gates.cnot = 1 := by decide
+example : routedMetrics.resources.gates.cnot = 4 := by decide
 
-example : directMetrics.applications < routedMetrics.applications := by decide
-example : directMetrics.resources.cnotGates < routedMetrics.resources.cnotGates := by decide
+example : directMetrics.operations.applications < routedMetrics.operations.applications := by decide
+example : directMetrics.resources.gates.cnot < routedMetrics.resources.gates.cnot := by decide
 
 #eval directMetrics
 #eval routedMetrics
@@ -110,12 +110,12 @@ oracles.
 ```lean
 def qsvtFiveSteps := QASM.Cost.Resources.qsvtAlternatingPhase 5
 
-example : qsvtFiveSteps.unitaryCalls = 3 := by decide
-example : qsvtFiveSteps.inverseUnitaryCalls = 2 := by decide
-example : qsvtFiveSteps.projectorControlledNots = 5 := by decide
-example : qsvtFiveSteps.complementaryProjectorControlledNots = 5 := by decide
-example : qsvtFiveSteps.oneQubitGates = 5 := by decide
-example : qsvtFiveSteps.peakAncillas = 1 := by decide
+example : qsvtFiveSteps.oracle.unitary = 3 := by decide
+example : qsvtFiveSteps.oracle.inverseUnitary = 2 := by decide
+example : qsvtFiveSteps.oracle.projectorControlledNot = 5 := by decide
+example : qsvtFiveSteps.oracle.complementaryProjectorControlledNot = 5 := by decide
+example : qsvtFiveSteps.gates.oneQubit = 5 := by decide
+example : qsvtFiveSteps.workspace.peakAncillaQubits = 1 := by decide
 ```
 
 Cosine-sine decomposition instead starts with an unrestricted $`n`$-qubit unitary and reports
@@ -126,8 +126,8 @@ five QSVT steps above, because their `U` calls still stand for unspecified subci
 ```lean
 def csdThreeQubits := QASM.Cost.Resources.csdGeneralUnitary 3
 
-example : csdThreeQubits.cnotGates = 48 := by decide
-example : csdThreeQubits.oneQubitGates = 64 := by decide
+example : csdThreeQubits.gates.cnot = 48 := by decide
+example : csdThreeQubits.gates.oneQubit = 64 := by decide
 
 #eval qsvtFiveSteps
 #eval csdThreeQubits

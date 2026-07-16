@@ -417,31 +417,40 @@ private def testQuantumBackend : IO Unit := do
 
 private def testCostMetrics : IO Unit := do
   let metrics := QASM.Cost.measure CostMetricsProgram.program
-  assertTrue (metrics.gateDeclarations == 1)
-    s!"gateDeclarations {metrics.gateDeclarations} != 1"
-  assertTrue (metrics.subroutineDeclarations == 0)
-    s!"subroutineDeclarations {metrics.subroutineDeclarations} != 0"
-  assertTrue (metrics.externDeclarations == 0)
-    s!"externDeclarations {metrics.externDeclarations} != 0"
-  assertTrue (metrics.allocations == 1) s!"allocations {metrics.allocations} != 1"
-  assertTrue (metrics.allocatedQubits == 2) s!"allocatedQubits {metrics.allocatedQubits} != 2"
-  assertTrue (metrics.applications == 4) s!"applications {metrics.applications} != 4"
-  assertTrue (metrics.resources.oneQubitGates == 2)
-    s!"oneQubitGates {metrics.resources.oneQubitGates} != 2"
-  assertTrue (metrics.resources.cnotGates == 1)
-    s!"cnotGates {metrics.resources.cnotGates} != 1"
-  assertTrue (metrics.resources.otherPrimitiveGates == 1)
-    s!"otherPrimitiveGates {metrics.resources.otherPrimitiveGates} != 1"
-  assertTrue (metrics.measurements == 1) s!"measurements {metrics.measurements} != 1"
-  assertTrue (metrics.resets == 1) s!"resets {metrics.resets} != 1"
-  assertTrue (metrics.barriers == 1) s!"barriers {metrics.barriers} != 1"
-  assertTrue (metrics.classicalOps == 4) s!"classicalOps {metrics.classicalOps} != 4"
-  assertTrue (metrics.branches == 1) s!"branches {metrics.branches} != 1"
-  assertTrue (metrics.loops == 1) s!"loops {metrics.loops} != 1"
-  assertTrue (metrics.subroutineCalls == 0)
-    s!"subroutineCalls {metrics.subroutineCalls} != 0"
-  assertTrue (metrics.externCalls == 0) s!"externCalls {metrics.externCalls} != 0"
-  assertTrue (metrics.unsupported == 0) s!"unsupported {metrics.unsupported} != 0"
+  assertTrue (metrics.declarations.gates == 1)
+    s!"gates {metrics.declarations.gates} != 1"
+  assertTrue (metrics.declarations.subroutines == 0)
+    s!"subroutines {metrics.declarations.subroutines} != 0"
+  assertTrue (metrics.declarations.externs == 0)
+    s!"externs {metrics.declarations.externs} != 0"
+  assertTrue (metrics.shape.allocationSites == 1)
+    s!"allocationSites {metrics.shape.allocationSites} != 1"
+  assertTrue (metrics.shape.allocatedQubits == 2)
+    s!"allocatedQubits {metrics.shape.allocatedQubits} != 2"
+  assertTrue (metrics.operations.applications == 4)
+    s!"applications {metrics.operations.applications} != 4"
+  assertTrue (metrics.resources.gates.oneQubit == 2)
+    s!"oneQubit {metrics.resources.gates.oneQubit} != 2"
+  assertTrue (metrics.resources.gates.cnot == 1)
+    s!"cnot {metrics.resources.gates.cnot} != 1"
+  assertTrue (metrics.resources.gates.otherPrimitive == 1)
+    s!"otherPrimitive {metrics.resources.gates.otherPrimitive} != 1"
+  assertTrue (metrics.operations.measurements == 1)
+    s!"measurements {metrics.operations.measurements} != 1"
+  assertTrue (metrics.operations.resets == 1) s!"resets {metrics.operations.resets} != 1"
+  assertTrue (metrics.operations.barriers == 1)
+    s!"barriers {metrics.operations.barriers} != 1"
+  assertTrue (metrics.operations.classical == 4)
+    s!"classical {metrics.operations.classical} != 4"
+  assertTrue (metrics.shape.branchNodes == 1)
+    s!"branchNodes {metrics.shape.branchNodes} != 1"
+  assertTrue (metrics.shape.loopNodes == 1) s!"loopNodes {metrics.shape.loopNodes} != 1"
+  assertTrue (metrics.operations.subroutineCalls == 0)
+    s!"subroutineCalls {metrics.operations.subroutineCalls} != 0"
+  assertTrue (metrics.operations.externCalls == 0)
+    s!"externCalls {metrics.operations.externCalls} != 0"
+  assertTrue (metrics.operations.unsupported == 0)
+    s!"unsupported {metrics.operations.unsupported} != 0"
 
 private def testSubroutine : IO Unit := do
   match runSubroutine.1 with
