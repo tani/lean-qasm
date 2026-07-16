@@ -10,6 +10,14 @@ This projection folds immutable canonical IR without invoking `QASM.Execution.ru
 body are visited once, while loop bodies are visited once without estimating iteration counts.
 Measurement, reset, and barrier costs likewise count operation nodes rather than selected wires.
 
+The embedded `Resources` vector is more selective than `applications`. A visible `.cx`
+primitive contributes one CNOT and a visible standard one-qubit primitive contributes one
+one-qubit gate. Every remaining primitive is retained as `otherPrimitiveGates`, rather than
+being assigned an unjustified CNOT decomposition. QSVT's `U`, `U†`, and projector-controlled
+NOT resources cannot be recovered from ordinary OpenQASM names, so they stay zero in this
+structural projection and are supplied explicitly with `Resources.qsvtAlternatingPhase` when
+the algorithmic contract is known.
+
 Gate and subroutine declaration bodies contribute once as program structure before the main
 body. Call sites contribute their own counters but never expand those declarations, which keeps
 the measure deterministic and total even when subroutines are recursive. External and unsupported
@@ -24,9 +32,18 @@ namespace QASM.Cost
 
 open QASM.IR
 
+def primitiveResources : PrimitiveKind → Resources
+  | .cx => { cnotGates := 1 }
+  | .u | .gphase | .p
+  | .x | .y | .z | .h | .s | .sdg | .t | .tdg | .sx | .rx | .ry | .rz
+  | .phase | .id | .u1 | .u2 | .u3 => { oneQubitGates := 1 }
+  | _ => { otherPrimitiveGates := 1 }
+
 def costCircuit : Circuit → CostM Unit
   | .identity _ => pure ()
-  | .primitive _ => charge { applications := 1 }
+  | .primitive primitive => charge {
+      applications := 1
+      resources := primitiveResources primitive.kind }
   | .compose first second => costCircuit first *> costCircuit second
   | .tensor first second => costCircuit first *> costCircuit second
   | .permute _ => pure ()
@@ -39,7 +56,9 @@ def costOp : Op → CostM Unit
   | .eval _ => charge { classicalOps := 1 }
   | .declare _ _ => charge { classicalOps := 1 }
   | .assign _ _ => charge { classicalOps := 1 }
-  | .apply _ _ => charge { applications := 1 }
+  | .apply gate _ => charge {
+      applications := 1
+      resources := primitiveResources gate.target }
   | .measure _ _ => charge { measurements := 1 }
   | .reset _ => charge { resets := 1 }
   | .barrier _ => charge { barriers := 1 }

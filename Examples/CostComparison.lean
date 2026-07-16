@@ -66,8 +66,10 @@ qasm! RoutedRemoteCNOT {
 
 The fixed `qasm!` declarations lower to canonical `QASM.IR.Program` values. The metric
 projection counts one allocation in each program, but it exposes three extra gate
-applications in the routed form. This is exactly the structural difference a mapper or a
-human circuit author needs to notice before assigning hardware-specific weights.
+applications and three extra literal CNOT gates in the routed form. This is exactly the
+structural difference a mapper or a human circuit author needs to notice before assigning
+hardware-specific weights. `oneQubitGates` and `cnotGates` are not a decomposition pass: they
+only classify primitive nodes that are already visible in the canonical IR.
 
 ```lean
 def directMetrics := QASM.Cost.measure DirectRemoteCNOT.program
@@ -79,8 +81,13 @@ example : directMetrics.allocatedQubits = 3 := by decide
 example : routedMetrics.allocatedQubits = 3 := by decide
 example : directMetrics.applications = 2 := by decide
 example : routedMetrics.applications = 5 := by decide
+example : directMetrics.resources.oneQubitGates = 1 := by decide
+example : routedMetrics.resources.oneQubitGates = 1 := by decide
+example : directMetrics.resources.cnotGates = 1 := by decide
+example : routedMetrics.resources.cnotGates = 4 := by decide
 
 example : directMetrics.applications < routedMetrics.applications := by decide
+example : directMetrics.resources.cnotGates < routedMetrics.resources.cnotGates := by decide
 
 #eval directMetrics
 #eval routedMetrics
@@ -90,6 +97,41 @@ example : directMetrics.applications < routedMetrics.applications := by decide
 The comparison deliberately does not call `execute`: static metrics answer a different
 question from simulation. They identify the resource-shape penalty of routing, while a
 backend-specific model can later turn that difference into depth, fidelity, or duration.
+
+## Keeping algorithmic and synthesized costs distinct
+
+The same resource vector can document a cost model before an OpenQASM program exists. For an
+alternating QSVT sequence of length five, the unitary calls alternate as three uses of $`U`$ and
+two uses of $`U^\dagger`$; each projector-controlled NOT family and the phase-gate family occur
+five times, and the construction requires one ancillary qubit. These are algorithmic costs, so
+they should not be mistaken for a CNOT count without an implementation of `U` and its projector
+oracles.
+
+```lean
+def qsvtFiveSteps := QASM.Cost.Resources.qsvtAlternatingPhase 5
+
+example : qsvtFiveSteps.unitaryCalls = 3 := by decide
+example : qsvtFiveSteps.inverseUnitaryCalls = 2 := by decide
+example : qsvtFiveSteps.projectorControlledNots = 5 := by decide
+example : qsvtFiveSteps.complementaryProjectorControlledNots = 5 := by decide
+example : qsvtFiveSteps.oneQubitGates = 5 := by decide
+example : qsvtFiveSteps.peakAncillas = 1 := by decide
+```
+
+Cosine-sine decomposition instead starts with an unrestricted $`n`$-qubit unitary and reports
+the synthesized elementary-gate totals. For three qubits its formula gives 48 CNOTs and 64
+one-qubit gates. This is a whole-unitary synthesis result; it is not comparable directly with the
+five QSVT steps above, because their `U` calls still stand for unspecified subcircuits.
+
+```lean
+def csdThreeQubits := QASM.Cost.Resources.csdGeneralUnitary 3
+
+example : csdThreeQubits.cnotGates = 48 := by decide
+example : csdThreeQubits.oneQubitGates = 64 := by decide
+
+#eval qsvtFiveSteps
+#eval csdThreeQubits
+```
 
 <!--
 vim: set filetype=markdown :

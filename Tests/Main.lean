@@ -426,6 +426,12 @@ private def testCostMetrics : IO Unit := do
   assertTrue (metrics.allocations == 1) s!"allocations {metrics.allocations} != 1"
   assertTrue (metrics.allocatedQubits == 2) s!"allocatedQubits {metrics.allocatedQubits} != 2"
   assertTrue (metrics.applications == 4) s!"applications {metrics.applications} != 4"
+  assertTrue (metrics.resources.oneQubitGates == 2)
+    s!"oneQubitGates {metrics.resources.oneQubitGates} != 2"
+  assertTrue (metrics.resources.cnotGates == 1)
+    s!"cnotGates {metrics.resources.cnotGates} != 1"
+  assertTrue (metrics.resources.otherPrimitiveGates == 1)
+    s!"otherPrimitiveGates {metrics.resources.otherPrimitiveGates} != 1"
   assertTrue (metrics.measurements == 1) s!"measurements {metrics.measurements} != 1"
   assertTrue (metrics.resets == 1) s!"resets {metrics.resets} != 1"
   assertTrue (metrics.barriers == 1) s!"barriers {metrics.barriers} != 1"
