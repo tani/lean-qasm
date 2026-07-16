@@ -23,13 +23,13 @@ statement bodies. This allows a body to call a declaration that appears later in
 while still requiring widths and shapes to be compile-time values.
 
 Type analysis closes every dimension before lowering. For a fixed array with shape
-$[n_1,\ldots,n_k]$, the flat element count is
+$`[n_1,\ldots,n_k]`$, the flat element count is
 
-$$
+```math
 N = \prod_{i=1}^{k} n_i,
-$$
+```
 
-and every $n_i$ must be a compile-time natural number. The checking order is:
+and every $`n_i`$ must be a compile-time natural number. The checking order is:
 
 ```mermaid
 flowchart LR

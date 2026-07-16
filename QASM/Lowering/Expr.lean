@@ -17,11 +17,11 @@ flowchart LR
 
 SI duration literals use a single base unit. For example,
 
-$$
+```math
 1\,\mathrm{ns}=10^{-9}\,\mathrm{s},
 \qquad
-1\,\mathrm{\mu s}=10^{-6}\,\mathrm{s}.
-$$
+1\,\mu\mathrm{s}=10^{-6}\,\mathrm{s}.
+```
 
 ```lean
 namespace QASM.Lowering

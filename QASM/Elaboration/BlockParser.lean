@@ -25,8 +25,8 @@ stateDiagram-v2
     Normal --> Normal: opening or closing brace
 ```
 
-If the nested depth before a normal-mode closing brace is $d$, the transition is
-$d \mapsto d-1$ for $d>0$; at $d=0$ that brace terminates the outer `qasm!` body.
+If the nested depth before a normal-mode closing brace is $`d`$, the transition is
+$`d \mapsto d-1`$ for $`d \gt 0`$; at $`d=0`$ that brace terminates the outer `qasm!` body.
 
 ```lean
 namespace QASM

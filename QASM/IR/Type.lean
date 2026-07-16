@@ -11,13 +11,13 @@ values.
 
 The resolved type grammar can be summarized as
 
-$$
-\tau ::= \operatorname{scalar}(s)
-      \mid \operatorname{array}(s, [n_1,\ldots,n_k])
-      \mid \operatorname{arrayRef}(m, s, \sigma, k),
-$$
+```math
+\tau ::= \mathrm{scalar}(s)
+      \mid \mathrm{array}(s, [n_1,\ldots,n_k])
+      \mid \mathrm{arrayRef}(m, s, \sigma, k),
+```
 
-where every $n_i$ and rank $k$ is concrete. The optional shape $\sigma$ records whether
+where every $`n_i`$ and rank $`k`$ is concrete. The optional shape $`\sigma`$ records whether
 an array-reference extent is known without conflating unknown shape with scalar type.
 
 ```lean

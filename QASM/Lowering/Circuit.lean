@@ -6,13 +6,13 @@
 
 Gate bodies lower to explicit categorical composition. Applications on selected wires are represented by permutations around a primitive tensor identity, preserving sequential and parallel structure.
 
-Applying a gate $g$ to selected lanes is represented structurally as
+Applying a gate $`g`$ to selected lanes is represented structurally as
 
-$$
-P^{-1} \circ (g \otimes \operatorname{id}) \circ P,
-$$
+```math
+P^{-1} \circ (g \otimes \mathrm{id}) \circ P,
+```
 
-where $P$ moves the selected wires into the primitive interface. This makes both the
+where $`P`$ moves the selected wires into the primitive interface. This makes both the
 selection and the untouched wires explicit:
 
 ```mermaid

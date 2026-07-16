@@ -19,13 +19,13 @@ flowchart LR
     Html --> Infoview
 ```
 
-For wire lane $i$ and operation column $j$, layout uses affine coordinates of the form
+For wire lane $`i`$ and operation column $`j`$, layout uses affine coordinates of the form
 
-$$
+```math
 y_i = y_0 + i\,\Delta_y,
 \qquad
 x_j = x_0 + j\,\Delta_x,
-$$
+```
 
 so nested rendering changes grouping without changing wire identity.
 

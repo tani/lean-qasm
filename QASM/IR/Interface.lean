@@ -9,11 +9,11 @@ how positions move, so an interface is deliberately not a set or a width alone.
 
 Sequential order and parallel composition are captured by list structure:
 
-$$
+```math
 I \otimes J \;=\; I \mathbin{+\!\!+} J,
 \qquad
 |I \otimes J| = |I| + |J|.
-$$
+```
 
 Thus two interfaces with the same width can still differ by wire order or wire kind.
 

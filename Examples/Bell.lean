@@ -16,13 +16,13 @@ program does not depend on classical target widths or the extended dialect.
 
 At the state-vector level, the intended circuit prepares
 
-$$
+```math
 |\Phi^+\rangle
 =
-\operatorname{CNOT}(H\otimes I)|00\rangle
+\mathrm{CNOT}(H\otimes I)|00\rangle
 =
 \frac{|00\rangle+|11\rangle}{\sqrt{2}}.
-$$
+```
 
 LeanQASM itself does not compute this vector; the example checks the structural operations
 delegated to the backend:

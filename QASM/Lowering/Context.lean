@@ -18,8 +18,8 @@ flowchart TD
     Binding --> IRVar["resolved IR variable"]
 ```
 
-Monotone allocation gives each fresh variable an ID $v_{n+1}$ with
-$v_{n+1} > v_n$, while scope exit changes visibility but never reuses an identity.
+Monotone allocation gives each fresh variable an ID $`v_{n+1}`$ with
+$`v_{n+1} \gt v_n`$, while scope exit changes visibility but never reuses an identity.
 
 ```lean
 namespace QASM.Lowering

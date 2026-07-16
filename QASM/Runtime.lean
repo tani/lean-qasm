@@ -21,11 +21,11 @@ flowchart LR
     Result --> Codec
 ```
 
-For a fixed array of shape $[n_1,\ldots,n_k]$, the codec enforces
+For a fixed array of shape $`[n_1,\ldots,n_k]`$, the codec enforces
 
-$$
+```math
 |\text{data}|=\prod_{i=1}^{k} n_i.
-$$
+```
 
 This proof-bearing boundary prevents a flat Lean array with the wrong extent from entering
 execution as a shaped OpenQASM value.

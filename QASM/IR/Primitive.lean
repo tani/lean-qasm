@@ -15,16 +15,16 @@ interface and polarity order together for categorical composition.
 
 A primitive is a typed circuit arrow
 
-$$
+```math
 p : I \longrightarrow O,
-$$
+```
 
 with parameters attached as resolved expressions. For a controlled primitive, the number
 of polarities must match the control interface width:
 
-$$
+```math
 |\text{polarities}| = |\text{controls}|.
-$$
+```
 
 ```lean
 namespace QASM.IR

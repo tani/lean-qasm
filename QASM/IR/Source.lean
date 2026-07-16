@@ -9,9 +9,9 @@ only for diagnostics and never participate in execution.
 
 For a populated span, the positional invariant is
 
-$$
-0 \le \text{startOffset} \le \text{endOffset}.
-$$
+```math
+0 \leq \text{startOffset} \leq \text{endOffset}.
+```
 
 Line and column fields refine those offsets for humans; execution observes neither
 representation.

@@ -13,19 +13,19 @@ cannot break surrounding circuit composition.
 
 The constructors retain the categorical boundary equations:
 
-$$
-\operatorname{dom}(g \circ f)=\operatorname{dom}(f),\qquad
-\operatorname{cod}(g \circ f)=\operatorname{cod}(g),
-$$
+```math
+\mathrm{dom}(g \circ f)=\mathrm{dom}(f),\qquad
+\mathrm{cod}(g \circ f)=\mathrm{cod}(g),
+```
 
-$$
-\operatorname{dom}(f \otimes g)=\operatorname{dom}(f)\mathbin{+\!\!+}\operatorname{dom}(g),
+```math
+\mathrm{dom}(f \otimes g)=\mathrm{dom}(f)\mathbin{+\!\!+}\mathrm{dom}(g),
 \qquad
-\operatorname{cod}(f \otimes g)=\operatorname{cod}(f)\mathbin{+\!\!+}\operatorname{cod}(g).
-$$
+\mathrm{cod}(f \otimes g)=\mathrm{cod}(f)\mathbin{+\!\!+}\mathrm{cod}(g).
+```
 
 Lowering must additionally ensure the composition side condition
-$\operatorname{cod}(f)=\operatorname{dom}(g)$.
+$`\mathrm{cod}(f)=\mathrm{dom}(g)`$.
 
 ```lean
 namespace QASM.IR

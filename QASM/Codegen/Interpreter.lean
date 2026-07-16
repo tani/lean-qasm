@@ -12,12 +12,12 @@ frontend ASTs are not part of the execution path.
 Execution composes state, structured failure, and backend effects in one explicit monad
 stack:
 
-$$
-\operatorname{ExecM}(m,q,e)
+```math
+\mathrm{ExecM}(m,q,e)
 =
-\operatorname{StateT}(\operatorname{ExecutionState}(q),
-  \operatorname{ExceptT}(\operatorname{RunError}(e),m)).
-$$
+\mathrm{StateT}(\mathrm{ExecutionState}(q),
+  \mathrm{ExceptT}(\mathrm{RunError}(e),m)).
+```
 
 The runtime path stays entirely on canonical data:
 

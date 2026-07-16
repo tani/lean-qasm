@@ -15,8 +15,8 @@ flowchart LR
     Measure --> Pure["pure expression referencing temporary"]
 ```
 
-If an expression yields prelude operations $p_1,\ldots,p_n$ and pure remainder $e$, the
-lowered order is $p_1;\cdots;p_n;e$. Left-to-right traversal therefore remains observable
+If an expression yields prelude operations $`p_1,\ldots,p_n`$ and pure remainder $`e`$, the
+lowered order is $`p_1;\cdots;p_n;e`$. Left-to-right traversal therefore remains observable
 through backend effects.
 
 ```lean

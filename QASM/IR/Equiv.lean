@@ -8,13 +8,13 @@ Exact equality retains every byte of metadata. Alpha equality canonicalizes reso
 
 The three relations form a deliberate implication chain:
 
-$$
+```math
 p = q
 \;\Longrightarrow\;
 p \equiv_{\alpha} q
 \;\Longrightarrow\;
 p \equiv_{\mathrm{shape}} q.
-$$
+```
 
 Each step forgets more presentation information while preserving binding, types,
 declarations, values, control flow, and explicit capability failures.

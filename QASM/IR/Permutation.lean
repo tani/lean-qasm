@@ -9,13 +9,13 @@ A permutation records how an ordered circuit interface is rewired. `mapping[i]` 
 the source lane placed at output position `i`; domain, codomain, and origin remain explicit
 so lowering and emitters can validate direction rather than infer it from array length.
 
-For a well-formed permutation $p : I \to O$, each output lane selects one input lane:
+For a well-formed permutation $`p : I \to O`$, each output lane selects one input lane:
 
-$$
-p.\mathrm{mapping}[i] < |I|
+```math
+p.\mathrm{mapping}[i] \lt |I|
 \quad\text{and}\quad
 I[p.\mathrm{mapping}[i]] = O[i].
-$$
+```
 
 Recording both interfaces makes this typed relationship visible to validation instead of
 reducing rewiring to an untyped array of indices.

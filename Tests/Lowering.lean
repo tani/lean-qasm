@@ -23,11 +23,11 @@ flowchart LR
     Lower -->|lowering diagnostic| LoweringRejected
 ```
 
-The category counts form a partition of the audited inputs, so with counts $n_i$,
+The category counts form a partition of the audited inputs, so with counts $`n_i`$,
 
-$$
+```math
 N_{\mathrm{audited}} = \sum_i n_i.
-$$
+```
 
 ```lean
 open QASM
