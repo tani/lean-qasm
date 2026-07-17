@@ -1,4 +1,5 @@
 import { act, cleanup, render } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, test } from "vitest";
 import { page } from "vitest/browser";
 import { parseCircuit } from "../../src/circuit/parser";
@@ -136,6 +137,19 @@ describe("custom editor bridge", () => {
     await page.getByRole("button", { name: "h gate on q[0]" }).click();
     await page.getByRole("button", { name: "Move operation left" }).click();
     expect(bridge.messages).toEqual([{ type: "ready" }]);
+  });
+
+  test("sends each in-flight edit only once under React Strict Mode", async () => {
+    const bridge = new TestBridge();
+    render(
+      <StrictMode>
+        <CircuitEditorApp bridge={bridge} />
+      </StrictMode>,
+    );
+    act(() => bridge.emit({ type: "documentChanged", version: 12, text: "", parsed }));
+    await page.getByPlaceholder("Filter gates").fill("Pauli Y");
+    await page.getByRole("button", { name: "Y 1q" }).click();
+    expect(bridge.messages.filter((message) => message.type === "replaceDocument")).toHaveLength(1);
   });
 
   test("rolls back an optimistic edit when the host rejects it", async () => {
