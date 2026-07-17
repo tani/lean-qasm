@@ -1,0 +1,121 @@
+{
+  "name": "qasm-editor",
+  "displayName": "QASM Editor",
+  "description": "A graphical OpenQASM 3.0 circuit editor for Visual Studio Code.",
+  "version": "0.1.0",
+  "publisher": "tani",
+  "license": "GPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tani/lean-qasm.git",
+    "directory": "vscode"
+  },
+  "private": true,
+  "type": "module",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Visualization",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "OpenQASM",
+    "quantum",
+    "circuit",
+    "QASM"
+  ],
+  "browser": "./dist/extension/extension.cjs",
+  "activationEvents": [
+    "workspaceContains:**/*.qasm",
+    "onCustomEditor:tani.qasm-editor.circuit",
+    "onCommand:tani.qasm-editor.newCircuit",
+    "onCommand:tani.qasm-editor.openCircuit",
+    "onCommand:tani.qasm-editor.openSource"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "tani.qasm-editor.newCircuit",
+        "title": "QASM Editor: New Quantum Circuit",
+        "category": "QASM Editor"
+      },
+      {
+        "command": "tani.qasm-editor.openCircuit",
+        "title": "QASM Editor: Open as Circuit",
+        "category": "QASM Editor",
+        "enablement": "resourceExtname == .qasm"
+      },
+      {
+        "command": "tani.qasm-editor.openSource",
+        "title": "QASM Editor: Open Source Editor",
+        "category": "QASM Editor",
+        "enablement": "resourceExtname == .qasm"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "tani.qasm-editor.circuit",
+        "displayName": "QASM Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.qasm"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "tani.qasm-editor.openSource",
+          "when": "activeCustomEditorId == tani.qasm-editor.circuit",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "npm run build:extension && npm run build:webview",
+    "build:extension": "vite build --mode extension",
+    "build:test-extension": "vite build --mode extension-test",
+    "build:webview": "vite build --mode webview && node scripts/check-webview-bundle.mjs",
+    "check": "npm run typecheck && npm run lint && npm run test && npm run build",
+    "format": "biome format --write .",
+    "launch": "npm run build && node scripts/launch.mjs",
+    "lint": "biome check .",
+    "package": "npm run check && vsce package --no-dependencies",
+    "test": "npm run test:unit && npm run test:browser",
+    "test:browser": "vitest run --project browser",
+    "test:extension:desktop": "npm run build && npm run build:test-extension && node scripts/run-electron-tests.mjs",
+    "test:extension:web": "npm run build && npm run build:test-extension && vscode-test-web --browserType=chromium --extensionDevelopmentPath=. --extensionTestsPath=dist/test/suite/index.cjs tests/fixtures/workspace",
+    "test:unit": "vitest run --project unit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fontsource-variable/instrument-sans": "^5.2.8",
+    "@fontsource/azeret-mono": "^5.2.8",
+    "open-props": "^1.7.16",
+    "qasm-ts": "2.1.4",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.2.0",
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@types/vscode": "^1.96.0",
+    "@vitejs/plugin-react": "^6.0.0",
+    "@vitest/browser-playwright": "^4.1.0",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/test-web": "^0.0.79",
+    "@vscode/vsce": "^3.6.2",
+    "axe-core": "^4.10.3",
+    "playwright": "^1.55.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.0",
+    "vitest": "^4.1.0"
+  }
+}

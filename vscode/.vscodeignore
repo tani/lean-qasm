@@ -1,0 +1,17 @@
+.gitignore
+.vscode/**
+.vscode-test/**
+.vscode-test-web/**
+.vitest-attachments/**
+coverage/**
+dist/test/**
+node_modules/**
+scripts/**
+src/**
+tests/**
+*.config.ts
+biome.json
+package-lock.json
+tsconfig.json
+.node-version
+*.vsix

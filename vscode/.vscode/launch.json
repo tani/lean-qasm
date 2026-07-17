@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run QASM Editor",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["${workspaceFolder}/tests/fixtures/workspace"],
+      "outFiles": ["${workspaceFolder}/dist/extension/**/*.cjs"],
+      "preLaunchTask": "build"
+    }
+  ]
+}
