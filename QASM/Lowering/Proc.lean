@@ -22,6 +22,8 @@ through backend effects.
 ```lean
 namespace QASM.Lowering
 
+open QASM.Parameters
+
 open QASM
 
 ```
@@ -35,16 +37,16 @@ left-to-right, so emitted preludes preserve source evaluation order across calls
 ranges, sets, arrays, and operand selectors.
 
 ```lean
-private def sequence (steps : Array QASM.IR.Proc) : QASM.IR.Proc :=
+private def sequence (steps : Array (QASM.IR.Proc Size Integer)) : (QASM.IR.Proc Size Integer) :=
   let steps := steps.filter (· != .skip)
   if steps.isEmpty then .skip else if steps.size == 1 then steps[0]! else .sequence steps
 
-private def prepend (prelude : Array QASM.IR.Proc) (body : QASM.IR.Proc) : QASM.IR.Proc :=
+private def prepend (prelude : Array (QASM.IR.Proc Size Integer)) (body : (QASM.IR.Proc Size Integer)) : (QASM.IR.Proc Size Integer) :=
   sequence (prelude.push body)
 
 mutual
 private partial def hoistExpression (source : QASM.Frontend.Expression) :
-    LowerM (Array QASM.IR.Proc × QASM.Frontend.Expression) := do
+    LowerM (Array (QASM.IR.Proc Size Integer) × QASM.Frontend.Expression) := do
   match source with
   | .measure operand =>
       let (prelude, operand) ← hoistOperand operand
@@ -52,7 +54,7 @@ private partial def hoistExpression (source : QASM.Frontend.Expression) :
       let context ← get
       let name := s!"__qasm_measure_{context.nextVarId}"
       let binding ← freshBinding name type true
-      let target : QASM.IR.LValue :=
+      let target : (QASM.IR.LValue Size Integer) :=
         { root := binding.var.id, type := resolvedType type,
           origin := sourceOrigin context.options }
       let operations := prelude ++ #[
@@ -98,7 +100,7 @@ private partial def hoistExpression (source : QASM.Frontend.Expression) :
   | value => pure (#[], value)
 
 private partial def hoistOptionalExpression (source : Option QASM.Frontend.Expression) :
-    LowerM (Array QASM.IR.Proc × Option QASM.Frontend.Expression) := do
+    LowerM (Array (QASM.IR.Proc Size Integer) × Option QASM.Frontend.Expression) := do
   match source with
   | none => pure (#[], none)
   | some value =>
@@ -106,7 +108,7 @@ private partial def hoistOptionalExpression (source : Option QASM.Frontend.Expre
       pure (prelude, some value)
 
 private partial def hoistExpressions (sources : Array QASM.Frontend.Expression) :
-    LowerM (Array QASM.IR.Proc × Array QASM.Frontend.Expression) := do
+    LowerM (Array (QASM.IR.Proc Size Integer) × Array QASM.Frontend.Expression) := do
   let mut prelude := #[]
   let mut values := #[]
   for source in sources do
@@ -116,7 +118,7 @@ private partial def hoistExpressions (sources : Array QASM.Frontend.Expression) 
   pure (prelude, values)
 
 private partial def hoistOperand (source : QASM.Frontend.Operand) :
-    LowerM (Array QASM.IR.Proc × QASM.Frontend.Operand) := do
+    LowerM (Array (QASM.IR.Proc Size Integer) × QASM.Frontend.Operand) := do
   match source with
   | .hardware index => pure (#[], .hardware index)
   | .identifier name groups =>
@@ -140,7 +142,7 @@ reused from the completed frontend analysis.
 
 ```lean
 private def lowerExpression (source : QASM.Frontend.Expression) :
-    LowerM (Array QASM.IR.Proc × QASM.IR.Expr) := do
+    LowerM (Array (QASM.IR.Proc Size Integer) × (QASM.IR.Expr Size Integer)) := do
   let (prelude, source) ← hoistExpression source
   pure (prelude, ← expression source)
 
@@ -152,17 +154,17 @@ private def resolveSourceType (type : QASM.Frontend.TypeSpec) :
   | .ok type => pure type
   | .error error => throw error
 
-private def directLValue (binding : Binding) (type : QASM.IR.Type)
-    (origin : QASM.IR.SourceSpan) : QASM.IR.LValue :=
+private def directLValue (binding : Binding) (type : (QASM.IR.Type Size))
+    (origin : QASM.IR.SourceSpan) : (QASM.IR.LValue Size Integer) :=
   { root := binding.var.id, type, origin }
 
 private def iterationDomain (source : QASM.Frontend.Expression) :
-    LowerM (Array QASM.IR.Proc × QASM.IR.IterationDomain) := do
+    LowerM (Array (QASM.IR.Proc Size Integer) × (QASM.IR.IterationDomain Size Integer)) := do
   match source with
   | .range start step stop =>
       let target ← get
-      let defaultExpr (value : Int) : QASM.IR.Expr :=
-        { type := .scalar (.sint target.options.target.intWidth), node := .intLit value,
+      let defaultExpr (value : Int) : (QASM.IR.Expr Size Integer) :=
+        { type := .scalar (.sint target.options.target.intWidth), node := .intLit (value : Integer),
           origin := sourceOrigin target.options }
       let (startPrelude, start) ← match start with
         | some value => lowerExpression value
@@ -195,7 +197,7 @@ operand effects before emitting a resolved `Op.apply`.
 
 ```lean
 private def callOperation (name : String) (sources : Array QASM.Frontend.Expression) :
-    LowerM (Array QASM.IR.Proc × QASM.IR.Op) := do
+    LowerM (Array (QASM.IR.Proc Size Integer) × (QASM.IR.Op Size Integer)) := do
   let context ← get
   let (prelude, sources) ← hoistExpressions sources
   match lookupCallable? context name, lookupCallableSignature? context name with
@@ -212,7 +214,7 @@ private def callOperation (name : String) (sources : Array QASM.Frontend.Express
   | _, none => fail s!"callable '{name}' has no checked signature"
 
 private def compoundValue (target source : QASM.Frontend.Expression) (operator : String) :
-    LowerM (Array QASM.IR.Proc × QASM.IR.Expr) := do
+    LowerM (Array (QASM.IR.Proc Size Integer) × (QASM.IR.Expr Size Integer)) := do
   let (prelude, rhs) ← lowerExpression source
   if operator == "=" then pure (prelude, rhs)
   else if operator == "~=" then
@@ -226,7 +228,7 @@ private def compoundValue (target source : QASM.Frontend.Expression) (operator :
 
 private def statementGateCall (modifiers : Array QASM.Frontend.GateModifier) (name : String)
     (parameters : Array QASM.Frontend.Expression) (designator : Option QASM.Frontend.Expression)
-    (operands : Array QASM.Frontend.Operand) : LowerM QASM.IR.Proc := do
+    (operands : Array QASM.Frontend.Operand) : LowerM (QASM.IR.Proc Size Integer) := do
   if designator.isSome then
     pure (.operation (.unsupported .timing s!"timed gate call '{name}'"))
   else
@@ -257,12 +259,12 @@ Backend-dependent constructs survive only as capability-tagged unsupported opera
 
 ```lean
 mutual
-partial def statements (source : Array QASM.Frontend.Statement) : LowerM QASM.IR.Proc := do
+partial def statements (source : Array QASM.Frontend.Statement) : LowerM (QASM.IR.Proc Size Integer) := do
   let mut result := #[]
   for current in source do result := result.push (← statement current)
   pure (sequence result)
 
-partial def statement (source : QASM.Frontend.Statement) : LowerM QASM.IR.Proc := do
+partial def statement (source : QASM.Frontend.Statement) : LowerM (QASM.IR.Proc Size Integer) := do
   let context ← get
   let origin := sourceOrigin context.options
   match source with
@@ -374,7 +376,7 @@ partial def statement (source : QASM.Frontend.Statement) : LowerM QASM.IR.Proc :
   | .calibrationGrammar _ | .calStatement _ | .defcalStatement _ _ =>
       pure (.operation (.unsupported .calibration source.toQasm))
 private partial def scopedStatements
-    (body : Array QASM.Frontend.Statement) : LowerM QASM.IR.Proc := do
+    (body : Array QASM.Frontend.Statement) : LowerM (QASM.IR.Proc Size Integer) := do
   pushScope
   let lowered ← statements body
   let context ← get

@@ -90,31 +90,31 @@ information for emission and boundary generation even when a capability prevents
 execution.
 
 ```lean
-structure IODecl where
-  var    : Var
+structure IODecl (size : Type := Nat) where
+  var    : (Var size)
   origin : SourceSpan := {}
   deriving Repr, BEq, Inhabited
 
-structure ConstantDecl where
+structure ConstantDecl (size : Type := Nat) (integer : Type := Int) where
   id     : DeclId
   name   : Name
-  type   : «Type»
-  value  : Expr
+  type   : («Type» size)
+  value  : (Expr size integer)
   origin : SourceSpan := {}
   deriving Repr, BEq, Inhabited
 
-structure TypeDecl where
+structure TypeDecl (size : Type := Nat) where
   id     : DeclId
   name   : Name
-  type   : «Type»
+  type   : («Type» size)
   origin : SourceSpan := {}
   deriving Repr, BEq, Inhabited
 
-structure ExternDecl where
+structure ExternDecl (size : Type := Nat) where
   id         : DeclId
   name       : Name
-  parameters : Array «Type» := #[]
-  returnType : «Type»
+  parameters : Array («Type» size) := #[]
+  returnType : («Type» size)
   origin     : SourceSpan := {}
   deriving Repr, BEq, Inhabited
 
@@ -127,21 +127,21 @@ Gate parameters and qubits bind a pure `Circuit`; subroutine parameters bind an 
 semantic distinction visible in every reference.
 
 ```lean
-structure GateDecl where
+structure GateDecl (size : Type := Nat) (integer : Type := Int) where
   id         : DeclId
   name       : Name
-  parameters : Array Var := #[]
-  qubits     : Array Var := #[]
-  body       : Circuit
+  parameters : Array (Var size) := #[]
+  qubits     : Array (Var size) := #[]
+  body       : (Circuit size integer)
   origin     : SourceSpan := {}
   deriving Repr, BEq, Inhabited
 
-structure SubroutineDecl where
+structure SubroutineDecl (size : Type := Nat) (integer : Type := Int) where
   id         : CallableId
   name       : Name
-  parameters : Array Var := #[]
-  returnType : «Type»
-  body       : Proc
+  parameters : Array (Var size) := #[]
+  returnType : («Type» size)
+  body       : (Proc size integer)
   origin     : SourceSpan := {}
   deriving Repr, BEq, Inhabited
 

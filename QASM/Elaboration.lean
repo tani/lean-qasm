@@ -26,8 +26,9 @@ are interpreted from IR at runtime; allocation, unitaries, measurement, reset, a
 barriers cross `QuantumBackend`.
 
 Input/output structures and the wrapper are emitted as Lean source strings and reparsed
-as commands. The canonical IR value is quoted directly as a Lean expression. This keeps
-the generated API native and typed without presenting the interpreted program body as
+as commands. The canonical IR value or parameterized template is quoted directly as a
+Lean expression. This keeps the generated API native and typed without presenting the
+interpreted program body as
 per-program Lean control flow.
 
 The command elaborator coordinates two distinct times:
@@ -45,7 +46,10 @@ flowchart LR
     end
 ```
 
-Only immutable IR and typed boundary declarations cross from elaboration into runtime;
+Closed declarations store immutable IR; family declarations store kernel-reducible
+functions returning ordinary IR and dependent boundary structures. `Family.Valid` records
+positive residual widths and extents, and `execute` requires its proof.
+Only these generated definitions cross from elaboration into runtime;
 frontend state, source cursors, and diagnostics do not.
 
 ```lean
@@ -53,8 +57,9 @@ namespace QASM
 namespace Compiler
 
 open Lean
-open Lean Elab Command
+open Lean Meta Elab Command
 open Frontend
+open QASM.Parameters
 
 private def leanString (value : String) : String := reprStr value
 
@@ -89,32 +94,39 @@ private partial def hasExtendedStatement : Statement → Bool
   | .annotated _ statement => hasExtendedStatement statement
   | _ => false
 
-private def irScalarLeanType : QASM.IR.ScalarTy → Except String String
+private def irScalarLeanType : QASM.IR.ScalarTy Size → Except String String
   | .bit none => pure "QASM.Bit"
-  | .bit (some width) => pure s!"BitVec {width}"
-  | .sint width => pure s!"QASM.SInt {width}"
-  | .uint width => pure s!"QASM.UInt {width}"
-  | .float 32 => pure "Float32"
-  | .float 64 => pure "Float"
+  | .bit (some width) => pure s!"BitVec ({width.leanCode})"
+  | .sint width => pure s!"QASM.SInt ({width.leanCode})"
+  | .uint width => pure s!"QASM.UInt ({width.leanCode})"
+  | .float ⟨.literal 32⟩ => pure "Float32"
+  | .float ⟨.literal 64⟩ => pure "Float"
   | .float width => throw s!"cannot emit float[{width}]"
-  | .angle width => pure s!"QASM.Angle {width}"
+  | .angle width => pure s!"QASM.Angle ({width.leanCode})"
   | .boolean => pure "Bool"
-  | .complex width => pure s!"QASM.ComplexN {width}"
+  | .complex width => pure s!"QASM.ComplexN ({width.leanCode})"
   | .duration => pure "QASM.Duration"
   | .stretch => throw "stretch requires a timing backend"
   | .qubit _ => throw "qubits cannot appear in classical I/O structures"
   | .void => throw "void cannot appear in a value structure"
 
-private def irLeanType : QASM.IR.Type → Except String String
+private def irLeanType : QASM.IR.Type Size → Except String String
   | .scalar value => irScalarLeanType value
   | .array element shape => do
       let element ← irScalarLeanType element
-      pure s!"QASM.FixedArray ({element}) [{String.intercalate ", " (shape.toList.map toString)}]"
+      pure s!"QASM.FixedArray ({element}) [{String.intercalate ", " (shape.toList.map Size.leanCode)}]"
   | .arrayRef .. => throw "array-reference types cannot appear in program I/O"
 
-private def structureCommand (name suffix : String) (fields : Array QASM.IR.IODecl) :
+private def familyBinders (parameters : Array String) : String :=
+  String.join (parameters.toList.map fun name => s!" ({leanIdentifier name} : Nat)")
+
+private def familyArguments (parameters : Array String) : String :=
+  String.join (parameters.toList.map fun name => s!" {leanIdentifier name}")
+
+private def structureCommand (name suffix : String) (fields : Array (QASM.IR.IODecl Size))
+    (parameters : Array String) :
     Except String String := do
-  let header := s!"structure {name}.{suffix} where"
+  let header := s!"structure {name}.{suffix}{familyBinders parameters} where"
   if fields.isEmpty then pure header
   else
     let mut declarations := #[]
@@ -124,43 +136,76 @@ private def structureCommand (name suffix : String) (fields : Array QASM.IR.IODe
     pure (header ++ "\n" ++ String.intercalate "\n" declarations.toList)
 
 
-private def elaborateProgram (name : String) (program : QASM.IR.Program) :
-    CommandElabM Unit := do
-  let declarationName := (← getCurrNamespace) ++ name.toName ++ `program
+private def elaborateProgram (name : String)
+    (program : QASM.IR.Program Size Integer) (parameters : Array String) : CommandElabM Unit := do
+  let namespaceName := (← getCurrNamespace) ++ name.toName
   liftTermElabM do
-    addAndCompile <| .defnDecl {
-      name := declarationName
-      levelParams := []
-      type := mkConst ``QASM.IR.Program
-      value := Lean.toExpr program
-      safety := .safe
-      hints := .abbrev
-    }
+    let rec bind (remaining : List String) (variables : Array (String × Lean.Expr)) : TermElabM Unit :=
+      match remaining with
+      | [] => do
+          let value := QASM.Elaboration.quoteTemplate variables program
+          let arguments := variables.map (·.2)
+          let type ← mkForallFVars arguments (mkApp2 (mkConst ``QASM.IR.Program) (mkConst ``Nat) (mkConst ``Int))
+          let body ← mkLambdaFVars arguments value
+          addAndCompile <| .defnDecl {
+            name := namespaceName ++ `program, levelParams := [], type, value := body,
+            safety := .safe, hints := .abbrev }
+          saveEqnAffectingOptions (namespaceName ++ `program)
+          enableRealizationsForConst (namespaceName ++ `program)
+          setReducibilityStatus (namespaceName ++ `program) .reducible
+          unless parameters.isEmpty do
+            let valid ← mkLambdaFVars arguments (QASM.Elaboration.templateValidity value)
+            let validType ← mkForallFVars arguments (mkSort .zero)
+            addAndCompile <| .defnDecl {
+              name := namespaceName ++ `Valid, levelParams := [], type := validType, value := valid,
+              safety := .safe, hints := .abbrev }
+            saveEqnAffectingOptions (namespaceName ++ `Valid)
+            enableRealizationsForConst (namespaceName ++ `Valid)
+            setReducibilityStatus (namespaceName ++ `Valid) .reducible
+      | parameter :: rest =>
+          withLocalDeclD parameter.toName (mkConst ``Nat) fun parameterTerm =>
+            bind rest (variables.push (parameter, parameterTerm))
+    bind parameters.toList #[]
 
-private def backendBinders : String :=
-  "{qasmM : Type → Type} {qasmQubit qasmError : Type} [Monad qasmM] " ++
-  "[QASM.QuantumBackend qasmM qasmQubit qasmError]"
+private partial def freshGeneratedName (parameters : Array String) (candidate : String) : String :=
+  if parameters.contains candidate then freshGeneratedName parameters (candidate ++ "_") else candidate
 
-private def executeCommand (name : String) (program : QASM.IR.Program) : String :=
+private def backendBinders (monad qubit error : String) : String :=
+  "{" ++ monad ++ " : Type → Type} {" ++ qubit ++ " " ++ error ++ " : Type} " ++
+  s!"[Monad {monad}] [QASM.QuantumBackend {monad} {qubit} {error}]"
+
+private def executeCommand (name : String) (program : QASM.IR.Program Size Integer)
+    (parameters : Array String) : String :=
+  let monad := freshGeneratedName parameters "qasmM"
+  let qubit := freshGeneratedName parameters "qasmQubit"
+  let error := freshGeneratedName parameters "qasmError"
+  let inputName := freshGeneratedName parameters "inputs"
+  let resultName := freshGeneratedName parameters "qasm_result"
+  let valuesName := if program.outputs.isEmpty then "_" else freshGeneratedName parameters "qasm_values"
+  let decodedName := freshGeneratedName parameters "qasm_decoded_value"
+  let validName := freshGeneratedName parameters "_valid"
+  let arguments := familyArguments parameters
   let inputs := program.inputs.map fun declaration =>
     s!"((⟨{declaration.var.id.value}⟩ : QASM.IR.VarId), " ++
-      s!"QASM.ValueCodec.toValue inputs.{leanIdentifier declaration.var.name})"
+      s!"QASM.ValueCodec.toValue {inputName}.{leanIdentifier declaration.var.name})"
   let outputFields := program.outputs.map fun declaration =>
     let key := s!"((⟨{declaration.var.id.value}⟩ : QASM.IR.VarId))"
-    let value := s!"qasm_values[{key}]?.getD QASM.Value.uninitialized"
+    let value := s!"{valuesName}[{key}]?.getD QASM.Value.uninitialized"
     s!"{leanIdentifier declaration.var.name} := (← match QASM.ValueCodec.fromValue ({value}) with\n" ++
-      s!"| .ok qasm_decoded_value => pure qasm_decoded_value\n" ++
+      s!"| .ok {decodedName} => pure {decodedName}\n" ++
       s!"| .error message => return .error (.invalidCast (" ++
         leanString ("output '" ++ declaration.var.name ++ "': ") ++ " ++ message)))"
   let success := if outputFields.isEmpty then "return .ok {}" else
     "return .ok {\n" ++ indent (String.intercalate ",\n" outputFields.toList) ++ "\n}"
   let body :=
-    s!"let qasm_result ← QASM.Execution.run {name}.program {arrayCode inputs}\n" ++
-    "match qasm_result with\n" ++
+    s!"let {resultName} ← QASM.Execution.run ({name}.program{arguments}) {arrayCode inputs}\n" ++
+    s!"match {resultName} with\n" ++
     "| .error error => return .error error\n" ++
-    "| .ok qasm_values =>\n" ++ indent success
-  s!"def {name}.execute " ++ backendBinders ++ s!" (inputs : {name}.Inputs) : " ++
-    s!"qasmM (Except (QASM.RunError qasmError) {name}.Outputs) := do\n" ++ indent body
+    s!"| .ok {valuesName} =>\n" ++ indent success
+  let validity := if parameters.isEmpty then "" else s!" ({validName} : {name}.Valid{arguments})"
+  s!"def {name}.execute " ++ backendBinders monad qubit error ++ familyBinders parameters ++ validity ++
+    s!" ({inputName} : {name}.Inputs{arguments}) : " ++
+    s!"{monad} (Except (QASM.RunError {error}) ({name}.Outputs{arguments})) := do\n" ++ indent body
 
 ```
 
@@ -240,7 +285,8 @@ declaration before compilation advances.
 ```lean
 
 private def compileProgram
-    (name origin source : String) (options : ElabOptions) : CommandElabM Unit := do
+    (name origin source : String) (options : ElabOptions)
+    (parameters : Array String := #[]) : CommandElabM Unit := do
   match options.target.validate with
   | .error message => throwError message
   | .ok () => pure ()
@@ -257,24 +303,24 @@ private def compileProgram
   if options.dialect == .v3_0 && program.statements.any hasExtendedStatement then
     throwError "`switch` and `nop` require `Dialect.extended`; strict OpenQASM 3.0 is the default"
   rejectBackendRequirements program
-  let analysis ← match QASM.analyzeTypes options.target program with
+  let analysis ← match QASM.Frontend.analyzeTypes options.target program parameters with
     | .ok analysis => pure analysis
     | .error diagnostics =>
         throwError m!"OpenQASM type checking failed: {repr diagnostics}"
-  let irProgram ← match QASM.Lowering.program program analysis
+  let irProgram ← match QASM.Lowering.template program analysis
       { target := options.target, dialect := options.dialect, origins } with
     | .ok program => pure program
     | .error error => throwError m!"OpenQASM IR lowering failed: {error.message}"
-  let inputs ← match structureCommand name "Inputs" irProgram.inputs with
+  let inputs ← match structureCommand name "Inputs" irProgram.inputs parameters with
     | .ok source => pure source
     | .error error => throwError m!"cannot emit input type: {error}"
-  let outputs ← match structureCommand name "Outputs" irProgram.outputs with
+  let outputs ← match structureCommand name "Outputs" irProgram.outputs parameters with
     | .ok source => pure source
     | .error error => throwError m!"cannot emit output type: {error}"
   elaborateGenerated inputs
   elaborateGenerated outputs
-  elaborateProgram name irProgram
-  elaborateGenerated (executeCommand name irProgram)
+  elaborateProgram name irProgram parameters
+  elaborateGenerated (executeCommand name irProgram parameters)
 
 private unsafe def evalOptions (usingClause : Syntax) : CommandElabM ElabOptions :=
   if usingClause.isNone then pure {} else
@@ -299,7 +345,9 @@ private def programNameFromPath (path : System.FilePath) : CommandElabM String :
 ```
 
 ## The `qasm!` command
-The inline and file forms share one command name. An optional ordinary Lean
+The inline, family, and file forms share one command name. Family binders each name a
+Lean `Nat` parameter; they are validated without evaluating the parameter. Multiple
+parameters use separate binders, for example `(n : Nat) (m : Nat)`. An optional ordinary Lean
 `ElabOptions` term follows `using`; omission selects the portable defaults.
 
 ```lean
@@ -307,11 +355,16 @@ The inline and file forms share one command name. An optional ordinary Lean
 syntax (name := qasmInlineCommand)
   "qasm!" ident "{" qasmBlock "}" ("using" term)? : command
 
+syntax qasmFamilyParameter := "(" ident ":" term ")"
+syntax (name := qasmFamilyCommand)
+  "qasm!" ident qasmFamilyParameter+ "{" qasmBlock "}" ("using" term)? : command
+
 syntax (name := qasmFileCommand)
   "qasm!" str ("using" term)? : command
 ```
 
-The command syntax is registered before its elaborators. Inline commands take their
+The command syntax is registered before its elaborators. Binder types use the ordinary
+Lean term parser so registering family syntax does not reserve `Nat` as a new keyword. Inline commands take their
 generated namespace explicitly; file commands derive it from the sanitized file stem.
 
 ```lean
@@ -320,6 +373,18 @@ meta unsafe def elaborateQasmInline : CommandElab
   | stx => do
       let options ← evalOptions stx[5]!
       compileProgram stx[1]!.getId.toString "<qasm!>" stx[3]!.getAtomVal options
+
+@[command_elab qasmFamilyCommand]
+meta unsafe def elaborateQasmFamily : CommandElab
+  | stx => do
+      for binder in stx[2].getArgs do
+        liftTermElabM do
+          let parameterType ← Term.elabType binder[3]
+          unless ← isDefEq parameterType (mkConst ``Nat) do
+            throwErrorAt binder[3] "QASM family parameters must have type Nat"
+      let parameters := stx[2].getArgs.map (fun binder => binder[1].getId.toString)
+      let options ← evalOptions stx[6]!
+      compileProgram stx[1]!.getId.toString "<qasm!>" stx[4]!.getAtomVal options parameters
 
 @[command_elab qasmFileCommand]
 meta unsafe def elaborateQasmFile : CommandElab

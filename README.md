@@ -96,6 +96,62 @@ For example, `#print Example.program` shows OpenQASM `if` and `for` statements a
 `QASM.IR.Proc.branch` and `QASM.IR.Proc.forLoop`; `#print Example.execute` shows the
 interpreter wrapper.
 
+### Parameterized programs and proofs
+
+Family binders introduce Lean natural-number parameters without evaluating them:
+
+```lean
+qasm! Sized (n : Nat) {
+  OPENQASM 3.0;
+  input bit[n] value;
+  output bit[n] result;
+  qubit[n] q;
+  result = value;
+}
+
+#check Sized.program -- Nat → QASM.IR.Program
+#check Sized.Inputs  -- Nat → Type
+#check Sized.Outputs -- Nat → Type
+#check Sized.Valid   -- Nat → Prop
+
+theorem sized_input_width (n : Nat) :
+    ((Sized.program n).inputs[0]!).var.type = .scalar (.bit (some n)) := by
+  rfl
+
+theorem sized_valid (n : Nat) : Sized.Valid (n + 1) := by
+  simp [Sized.Valid]
+
+def sizedExample := TraceBackend.run
+  (Sized.execute 5 (by decide) { value := BitVec.ofNat 5 19 })
+```
+
+`program` is a normal, reducible Lean function containing concrete IR constructors and
+open terms. It does not reparse QASM or run the compiler when called. Multiple parameters
+use separate binders: `qasm! Family (n : Nat) (m : Nat) { ... }`. Their values are available
+as immutable QASM constants, including inside subroutines and gate expressions. Runtime
+inputs remain separate from these program-family parameters.
+
+Widths, qubit counts, array extents, and constant aliases support symbolic `+`, `-`, and
+`*`. Shapes are compared structurally after closed arithmetic and simple identity
+normalization. A symbolic slice requires a concrete step of `1` or `-1`. Floating-point
+widths, array-reference ranks, control counts, and statically expanded gate-body loops
+still require concrete values. Use process-level `for` loops for parameter-dependent
+iteration; those loops stay in IR. QASM declarations cannot shadow family parameters.
+
+`Sized.Valid n` contains positivity conditions for all residual widths and extents.
+It is a size precondition, not a proof of index safety, termination, or successful device
+execution. The data function `program` remains available for all natural numbers;
+`execute` requires a proof of `Valid`. For direct construction and transformations,
+`IR.Program` also supports ordinary Lean functions independently of QASM quotation.
+
+For general program laws, `Execution.Semantics.Exec` gives a relational account of finite
+successful control flow, parameterized by an expression and atomic-operation model.
+`Execution.Semantics.sequence_skip_left` proves neutrality of a leading `skip` for every
+process and model, so it applies directly to `(Sized.program n).body` with `n` still open.
+This is separate from the existing `partial` interpreter: no refinement or quantum
+correctness theorem is asserted. `IR.Substitution` is total and proves that size/integer
+substitution preserves circuit domains and codomains.
+
 ### Circuit diagrams
 
 `#html Example.program` derives and renders a static circuit diagram from the canonical

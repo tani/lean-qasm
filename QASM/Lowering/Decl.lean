@@ -23,6 +23,8 @@ Only the program I/O bindings survive into the top-level executable body.
 ```lean
 namespace QASM.Lowering
 
+open QASM.Parameters
+
 open QASM
 
 ```
@@ -43,20 +45,20 @@ private def resolveDeclarationType (type : QASM.Frontend.TypeSpec) :
   | .error error => throw error
 
 def constantDeclaration (type : QASM.Frontend.TypeSpec) (name : String)
-    (value : QASM.Frontend.Expression) : LowerM QASM.IR.ConstantDecl := do
+    (value : QASM.Frontend.Expression) : LowerM (QASM.IR.ConstantDecl Size Integer) := do
   let context ← get
   let entry ← match lookupConstant? context name with
     | some entry => pure entry
     | none => fail s!"constant '{name}' has no resolved declaration ID"
   let type ← resolveDeclarationType type
   let value ← expression value
-  let result : QASM.IR.ConstantDecl :=
+  let result : (QASM.IR.ConstantDecl Size Integer) :=
     { id := entry.id, name := name, type := resolvedType type, value := value,
       origin := sourceOrigin context.options }
   pure result
 
 def externDeclaration (name : String) (arguments : Array QASM.Frontend.TypeSpec)
-    (returnType : Option QASM.Frontend.TypeSpec) : LowerM QASM.IR.ExternDecl := do
+    (returnType : Option QASM.Frontend.TypeSpec) : LowerM (QASM.IR.ExternDecl Size) := do
   let context ← get
   let entry ← match lookupExtern? context name with
     | some entry => pure entry
@@ -65,17 +67,17 @@ def externDeclaration (name : String) (arguments : Array QASM.Frontend.TypeSpec)
   let returnType ← match returnType with
     | some type => resolveDeclarationType type
     | none => pure (.scalar .void)
-  let result : QASM.IR.ExternDecl :=
+  let result : (QASM.IR.ExternDecl Size) :=
     { id := entry.id, name := name, parameters := parameters.map resolvedType,
       returnType := resolvedType returnType, origin := sourceOrigin context.options }
   pure result
 
 def ioDeclaration (name : String) (type : QASM.Frontend.TypeSpec)
-    (input : Bool) : LowerM QASM.IR.IODecl := do
+    (input : Bool) : LowerM (QASM.IR.IODecl Size) := do
   let context ← get
   let type ← resolveDeclarationType type
   let binding ← freshBinding name type (!input)
-  let result : QASM.IR.IODecl :=
+  let result : (QASM.IR.IODecl Size) :=
     { var := binding.var, origin := sourceOrigin context.options }
   pure result
 
@@ -90,7 +92,7 @@ bindings from leaking into the compilation unit.
 
 ```lean
 def gateDeclaration (name : String) (parameterNames qubitNames : Array String)
-    (body : Array QASM.Frontend.Statement) : LowerM QASM.IR.GateDecl := do
+    (body : Array QASM.Frontend.Statement) : LowerM (QASM.IR.GateDecl Size Integer) := do
   let outer ← get
   let gate ← match lookupGate? outer name with
     | some gate => pure gate
@@ -113,7 +115,7 @@ def gateDeclaration (name : String) (parameterNames qubitNames : Array String)
   let circuit ← gateBody qubitNames.size body
   let after ← get
   set { after with scopes := outer.scopes, localConstants := outer.localConstants }
-  let result : QASM.IR.GateDecl :=
+  let result : (QASM.IR.GateDecl Size Integer) :=
     { id := id, name := name, parameters := parameters, qubits := qubits, body := circuit,
       origin := sourceOrigin outer.options }
   pure result
@@ -131,7 +133,7 @@ are valid because callable IDs were assigned before any body was visited.
 def subroutineDeclaration (name : String)
     (arguments : Array QASM.Frontend.ArgumentDefinition)
     (returnType : Option QASM.Frontend.TypeSpec) (body : Array QASM.Frontend.Statement) :
-    LowerM QASM.IR.SubroutineDecl := do
+    LowerM (QASM.IR.SubroutineDecl Size Integer) := do
   let outer ← get
   let callable ← match lookupCallable? outer name with
     | some callable => pure callable
@@ -158,7 +160,7 @@ def subroutineDeclaration (name : String)
   let returnType ← match returnType with
     | some type => resolveDeclarationType type
     | none => pure (.scalar .void)
-  let result : QASM.IR.SubroutineDecl :=
+  let result : (QASM.IR.SubroutineDecl Size Integer) :=
     { id := callable.id, name := name, parameters := parameters,
       returnType := resolvedType returnType,
       body := loweredBody, origin := sourceOrigin outer.options }

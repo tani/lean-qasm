@@ -1,10 +1,13 @@
     import LiterateLean
     import QASM.Lowering.Decl
+    import QASM.IR.Substitution
     open scoped LiterateLean
 
 # Complete program lowering
 
-The public lowering entry point consumes the checked frontend program and its type analysis, producing the single canonical IR compilation unit.
+The public lowering entry points consume a checked frontend program and its type
+analysis. `template` retains symbolic sizes and integer literals; `program` preserves
+the original concrete API and rejects parameterized analysis.
 
 The final pass partitions source-order statements into persistent program components:
 
@@ -14,7 +17,7 @@ flowchart LR
     Collect --> Metadata
     Collect --> Declarations
     Collect --> Body["ordered Proc body"]
-    Metadata --> Program["QASM.IR.Program"]
+    Metadata --> Program["(QASM.IR.Program Size Integer)"]
     Declarations --> Program
     Body --> Program
 ```
@@ -23,6 +26,8 @@ The partition changes storage layout, not source-relative order within each comp
 
 ```lean
 namespace QASM.Lowering
+
+open QASM.Parameters
 
 open QASM
 
@@ -39,13 +44,13 @@ them independently.
 ```lean
 private structure Components where
   includes    : Array QASM.IR.IncludeInfo := #[]
-  inputs      : Array QASM.IR.IODecl := #[]
-  outputs     : Array QASM.IR.IODecl := #[]
-  constants   : Array QASM.IR.ConstantDecl := #[]
-  externs     : Array QASM.IR.ExternDecl := #[]
-  gates       : Array QASM.IR.GateDecl := #[]
-  subroutines : Array QASM.IR.SubroutineDecl := #[]
-  body        : Array QASM.IR.Proc := #[]
+  inputs      : Array (QASM.IR.IODecl Size) := #[]
+  outputs     : Array (QASM.IR.IODecl Size) := #[]
+  constants   : Array (QASM.IR.ConstantDecl Size Integer) := #[]
+  externs     : Array (QASM.IR.ExternDecl Size) := #[]
+  gates       : Array (QASM.IR.GateDecl Size Integer) := #[]
+  subroutines : Array (QASM.IR.SubroutineDecl Size Integer) := #[]
+  body        : Array (QASM.IR.Proc Size Integer) := #[]
   deriving Inhabited
 
 private partial def stripAnnotations : QASM.Frontend.Statement → QASM.Frontend.Statement
@@ -75,7 +80,7 @@ private partial def collectMetadataStatement (origin : QASM.IR.SourceSpan)
       defaultBody.map (·.foldl (collectMetadataStatement origin) metadata) |>.getD metadata
   | _ => (annotations, pragmas)
 
-private def programBody (steps : Array QASM.IR.Proc) : QASM.IR.Proc :=
+private def programBody (steps : Array (QASM.IR.Proc Size Integer)) : (QASM.IR.Proc Size Integer) :=
   let steps := steps.filter (· != .skip)
   if steps.isEmpty then .skip else if steps.size == 1 then steps[0]! else .sequence steps
 
@@ -90,7 +95,16 @@ metadata and as a runtime no-op.
 
 ```lean
 private def lowerComponents (source : QASM.Frontend.Program) : LowerM Components := do
+  let context ← get
   let mut components : Components := {}
+  for name in context.analysis.parameters do
+    let some entry := lookupConstant? context name
+      | fail s!"family parameter '{name}' has no declaration ID"
+    let type := resolvedType entry.type
+    let declaration : QASM.IR.ConstantDecl Size Integer :=
+      { id := entry.id, name, type, value := { type, node := .intLit (.parameter name) },
+        origin := sourceOrigin context.options }
+    components := { components with constants := components.constants.push declaration }
   for original in source.statements do
     let current := stripAnnotations original
     match current with
@@ -132,7 +146,7 @@ collapsed without changing order, yielding the one persistent value consumed by 
 diagram extraction, equivalence checks, and execution.
 
 ```lean
-private def lowerProgram (source : QASM.Frontend.Program) : LowerM QASM.IR.Program := do
+private def lowerProgram (source : QASM.Frontend.Program) : LowerM (QASM.IR.Program Size Integer) := do
   let context ← get
   let components ← lowerComponents source
   let (annotations, pragmas) := source.statements.foldl
@@ -164,16 +178,25 @@ private def lowerProgram (source : QASM.Frontend.Program) : LowerM QASM.IR.Progr
 ## Public lowering transaction
 
 The public entry point initializes every stable declaration ID before running the stateful
-body pass. It exposes only `Except Diagnostic Program`; the final lowering context is an
-implementation detail and cannot leak into downstream consumers.
+body pass. The final lowering context is an implementation detail. Closed lowering uses the
+total IR substitution pass to produce ordinary `Program`; family quotation instead
+emits open Lean constructor terms directly, without evaluating the compiler at runtime.
 
 ```lean
 /-- Lowers a type-checked frontend compilation unit into canonical categorical–monadic IR. -/
-def program (source : QASM.Frontend.Program) (analysis : QASM.Frontend.TypeAnalysis)
-    (options : LoweringOptions := {}) : Except QASM.Diagnostic QASM.IR.Program := do
+def template (source : QASM.Frontend.Program) (analysis : QASM.Frontend.TypeAnalysis)
+    (options : LoweringOptions := {}) : Except QASM.Diagnostic (QASM.IR.Program Size Integer) := do
   let context ← Context.initialize options analysis source
   let (program, _) ← lowerProgram source |>.run context
   pure program
+
+/-- Closed lowering preserves the existing concrete API; families use `template`. -/
+def program (source : QASM.Frontend.Program) (analysis : QASM.Frontend.TypeAnalysis)
+    (options : LoweringOptions := {}) : Except QASM.Diagnostic QASM.IR.Program := do
+  unless analysis.parameters.isEmpty do
+    throw (diagnostic "parameterized analysis requires Lowering.template")
+  let value ← template source analysis options
+  pure (value.map (Size.eval fun _ => 0) (Integer.eval fun _ => 0))
 
 end QASM.Lowering
 ```

@@ -46,19 +46,21 @@ inductive Builtin
 
 ## Typed expression trees
 
-Literal nodes carry semantic values rather than source spellings. Variable, constant, and
+Literal nodes carry semantic values rather than source spellings. Size and integer
+representation parameters default to `Nat` and `Int`; compilation templates temporarily
+use symbolic values, then quotation emits the concrete constructors with open Lean terms. Variable, constant, and
 subroutine references use their dedicated stable IDs; casts store the resolved target
 type; unsupported nodes retain a capability and diagnostic detail instead of inventing a
 fallback value.
 
 ```lean
 mutual
-structure Expr where
-  type   : «Type»
-  node   : ExprNode
+structure Expr (size : Type := Nat) (integer : Type := Int) where
+  type   : («Type» size)
+  node   : (ExprNode size integer)
   origin : SourceSpan := {}
-inductive ExprNode where
-  | intLit         (value : Int)
+inductive ExprNode (size : Type := Nat) (integer : Type := Int) where
+  | intLit         (value : integer)
   | floatLit       (value : Float)
   | imaginaryLit   (value : Float)
   | boolLit        (value : Bool)
@@ -66,24 +68,24 @@ inductive ExprNode where
   | durationLit    (seconds : Float)
   | var            (id : VarId)
   | const          (id : DeclId)
-  | unary          (op : UnaryOp) (operand : Expr)
-  | binary         (op : BinaryOp) (lhs rhs : Expr)
-  | builtin        (fn : Builtin) (args : Array Expr)
-  | callSubroutine (callee : CallableId) (args : Array Expr)
-  | cast           (target : «Type») (value : Expr)
-  | index          (value : Expr) (indices : Array Expr)
-  | range          (start step stop : Option Expr)
-  | set            (values : Array Expr)
-  | array          (values : Array Expr)
+  | unary          (op : UnaryOp) (operand : (Expr size integer))
+  | binary         (op : BinaryOp) (lhs rhs : (Expr size integer))
+  | builtin        (fn : Builtin) (args : Array (Expr size integer))
+  | callSubroutine (callee : CallableId) (args : Array (Expr size integer))
+  | cast           (target : («Type» size)) (value : (Expr size integer))
+  | index          (value : (Expr size integer)) (indices : Array (Expr size integer))
+  | range          (start step stop : Option (Expr size integer))
+  | set            (values : Array (Expr size integer))
+  | array          (values : Array (Expr size integer))
   | unsupported    (capability : Capability) (detail : String)
 end
 
 deriving instance Repr, BEq for Expr, ExprNode
 
-instance : Inhabited ExprNode := ⟨.intLit 0⟩
+instance {size integer : Type} [Inhabited integer] : Inhabited (ExprNode size integer) := ⟨.intLit default⟩
 
-instance : Inhabited Expr :=
-  ⟨{ type := .scalar .void, node := .intLit 0, origin := {} }⟩
+instance {size integer : Type} [Inhabited integer] : Inhabited (Expr size integer) :=
+  ⟨{ type := .scalar .void, node := .intLit default, origin := {} }⟩
 
 ```
 
@@ -94,17 +96,17 @@ instance : Inhabited Expr :=
 multidimensional indexing for checked read-modify-write reconstruction.
 
 ```lean
-structure Var where
+structure Var (size : Type := Nat) where
   id     : VarId
   name   : Name
-  type   : «Type»
+  type   : («Type» size)
   origin : SourceSpan := {}
   deriving Repr, BEq, Inhabited
 
-structure LValue where
+structure LValue (size : Type := Nat) (integer : Type := Int) where
   root    : VarId
-  indices : Array (Array Expr) := #[]
-  type    : «Type»
+  indices : Array (Array (Expr size integer)) := #[]
+  type    : («Type» size)
   origin  : SourceSpan := {}
   deriving Repr, BEq, Inhabited
 

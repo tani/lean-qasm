@@ -1,5 +1,6 @@
     import LiterateLean
 
+    import QASM.Frontend.Parameters
     import QASM.Runtime
     import QASM.Frontend
     import QASM.Frontend.Semantics
@@ -15,21 +16,22 @@ statement under its lexical context.
 
 The checker is intentionally distinct from the earlier semantic pass. Semantics handles
 source-wide rules and backend capability discovery; typing answers the representation and
-compatibility questions required by resolved IR. Successful analysis leaves no unresolved
-default width, array extent, callable arity, or operand category at the portable boundary.
+compatibility questions required by resolved IR. Successful analysis resolves default widths, callable arities, and operand categories.
+For families, widths and extents retain symbolic integer expressions until Lean quotation.
 
 Checking proceeds in dependency order: global constants first, signatures second, then
 statement bodies. This allows a body to call a declaration that appears later in source
-while still requiring widths and shapes to be compile-time values.
+while permitting widths and shapes to depend on explicit Lean natural-number parameters.
 
-Type analysis closes every dimension before lowering. For a fixed array with shape
+Type analysis evaluates closed dimensions and preserves family-dependent dimensions. For a fixed array with shape
 $`[n_1,\ldots,n_k]`$, the flat element count is
 
 ```math
 N = \prod_{i=1}^{k} n_i,
 ```
 
-and every $`n_i`$ must be a compile-time natural number. The checking order is:
+Closed dimensions must be positive; residual dimensions contribute positivity conditions
+to the generated `Valid` predicate. The checking order is:
 
 ```mermaid
 flowchart LR
@@ -45,27 +47,29 @@ checking.
 namespace QASM
 namespace Frontend
 
-/-- A scalar type after target widths and compile-time designators are resolved. -/
+open QASM.Parameters
+
+/-- Scalar types with closed or residual family-dependent designators. -/
 inductive ResolvedScalar where
-  | bit (width : Option Nat)
-  | sint (width : Nat)
-  | uint (width : Nat)
-  | float (width : Nat)
-  | angle (width : Nat)
+  | bit (width : Option Size)
+  | sint (width : Size)
+  | uint (width : Size)
+  | float (width : Size)
+  | angle (width : Size)
   | boolean
-  | complex (width : Nat)
+  | complex (width : Size)
   | duration
   | stretch
-  | qubit (count : Nat)
+  | qubit (count : Size)
   | void
   deriving Repr, Inhabited, BEq
 
-/-- A source type after all shape expressions have been evaluated. -/
+/-- Types whose shapes have been evaluated or retained as symbolic expressions. -/
 inductive ResolvedType where
   | scalar (value : ResolvedScalar)
-  | array (element : ResolvedScalar) (shape : Array Nat)
+  | array (element : ResolvedScalar) (shape : Array Size)
   | arrayRef (mutable : Bool) (element : ResolvedScalar)
-      (shape : Option (Array Nat)) (rank : Nat)
+      (shape : Option (Array Size)) (rank : Nat)
   deriving Repr, Inhabited, BEq
 
 ```
@@ -74,23 +78,24 @@ inductive ResolvedType where
 
 `ResolvedScalar` and `ResolvedType` are the normalized vocabulary consumed by later
 checking and elaboration. Source `TypeSpec` nodes may still contain expressions for widths
-and dimensions; resolved types contain only concrete natural numbers and explicit array
-rank information.
+and dimensions; resolved types contain `Parameters.Size` values and concrete array ranks.
 
-The constant environment stores integers because widths, ranks, and extents require the
-integer-evaluable subset. `evalConstInt` supports arithmetic, bitwise operations,
-comparisons, logical operators, and casts while rejecting expressions that depend on
-runtime state.
+The constant environment stores closed or symbolic integers. Fixed circuit arities,
+floating-point widths, and array ranks still require concrete values. `evalConstInt` supports arithmetic, bitwise operations,
+comparisons, logical operators, and casts while rejecting runtime state. `evalDesignator` additionally preserves family-dependent
+addition, subtraction, and multiplication without representative numerical evaluation.
 
 ```lean
-abbrev ConstantEnvironment := List (String × Int)
+abbrev ConstantEnvironment := List (String × Integer)
 
 private def diagnostic (message : String) : Diagnostic := ⟨message⟩
 
 private def lookupConstant (environment : ConstantEnvironment) (name : String) :
     Except Diagnostic Int :=
   match environment.find? (fun entry => entry.1 == name) with
-  | some entry => pure entry.2
+  | some entry => match entry.2.closed? with
+      | some value => pure value
+      | none => throw (diagnostic s!"'{name}' depends on a family parameter; this context requires a closed integer")
   | none => throw (diagnostic s!"'{name}' is not a compile-time integer constant")
 
 private def integerLiteral (raw : String) : Int :=
@@ -141,12 +146,33 @@ partial def evalConstInt (environment : ConstantEnvironment) :
   | expression =>
       throw (diagnostic s!"expression is not an integer constant: {expression.toQasm}")
 
+/-- Residual designator arithmetic. Unsupported symbolic operators are rejected. -/
+partial def evalDesignator (environment : ConstantEnvironment)
+    (expression : Expression) : Except Diagnostic Integer := do
+  match (evalConstInt environment expression).toOption with
+  | some value => pure (.literal value)
+  | none => match expression with
+    | .identifier name =>
+        match environment.find? (·.1 == name) with
+        | some entry => pure entry.2
+        | none => throw (diagnostic s!"'{name}' is not a compile-time constant or family parameter")
+    | .unary "-" value => pure (.neg (← evalDesignator environment value))
+    | .binary "+" left right => pure ((← evalDesignator environment left) + (← evalDesignator environment right))
+    | .binary "-" left right => pure ((← evalDesignator environment left) - (← evalDesignator environment right))
+    | .binary "*" left right => pure ((← evalDesignator environment left) * (← evalDesignator environment right))
+    | _ => throw (diagnostic s!"unsupported symbolic designator: {expression.toQasm}; use +, -, or *")
+
+private def closedSize (purpose : String) (size : Size) : Except Diagnostic Nat :=
+  match size.value.closed? with
+  | some value => pure value.toNat
+  | none => throw (diagnostic s!"{purpose} must be concrete, independent of family parameters")
+
 ```
 
 ## Resolving widths and shapes
 
-Every designator used as a width or extent passes through `positiveNat`, so zero and
-negative sizes fail at the point where their purpose is known. Missing scalar widths are
+Every width or extent passes through `positiveNat`: closed nonpositive sizes fail
+immediately, while symbolic sizes generate proof obligations during quotation. Missing scalar widths are
 filled from `TargetConfig`; explicit float and complex widths are restricted to the
 representations supported by the runtime.
 
@@ -157,16 +183,19 @@ same layout.
 
 ```lean
 private def positiveNat (environment : ConstantEnvironment) (label : String)
-    (expression : Expression) : Except Diagnostic Nat := do
-  let value ← evalConstInt environment expression
-  unless value > 0 do throw (diagnostic s!"{label} must be a positive integer, got {value}")
-  pure value.toNat
+    (expression : Expression) : Except Diagnostic Size := do
+  let value ← evalDesignator environment expression
+  match value.closed? with
+  | some number =>
+      unless number > 0 do throw (diagnostic s!"{label} must be a positive integer, got {number}")
+  | none => pure ()
+  pure ⟨value⟩
 
 private def resolveWidth (environment : ConstantEnvironment) (label : String)
-    (fallback : Nat) (width : Option Expression) : Except Diagnostic Nat := do
+    (fallback : Nat) (width : Option Expression) : Except Diagnostic Size := do
   match width with
   | some expression => positiveNat environment s!"{label} width" expression
-  | none => pure fallback
+  | none => pure (fallback : Size)
 
 private def resolveScalar (target : TargetConfig) (environment : ConstantEnvironment)
     (name : String) (width : Option Expression) : Except Diagnostic ResolvedScalar := do
@@ -181,19 +210,19 @@ private def resolveScalar (target : TargetConfig) (environment : ConstantEnviron
   | "int" => pure (.sint (← resolveWidth environment "int" target.intWidth width))
   | "uint" => pure (.uint (← resolveWidth environment "uint" target.uintWidth width))
   | "float" =>
-      let width ← resolveWidth environment "float" target.floatWidth width
+      let width ← closedSize "float width" (← resolveWidth environment "float" target.floatWidth width)
       unless width == 32 || width == 64 do
         throw (diagnostic s!"float width must be 32 or 64, got {width}")
-      pure (.float width)
+      pure (.float (width : Size))
   | "angle" => pure (.angle (← resolveWidth environment "angle" target.angleWidth width))
   | "bool" =>
       if width.isSome then throw (diagnostic "bool does not accept a designator")
       pure .boolean
   | "complex" =>
-      let width ← resolveWidth environment "complex component" target.floatWidth width
+      let width ← closedSize "complex width" (← resolveWidth environment "complex component" target.floatWidth width)
       unless width == 32 || width == 64 do
         throw (diagnostic s!"complex component width must be 32 or 64, got {width}")
-      pure (.complex width)
+      pure (.complex (width : Size))
   | "duration" =>
       if width.isSome then throw (diagnostic "duration does not accept a designator")
       pure .duration
@@ -217,7 +246,9 @@ dimensions belong in the single shape vector.
 
 Concrete arrays carry every extent. Array references may instead carry only a rank, which
 models callable parameters that accept any extents of a fixed dimensionality. Both forms
-enforce OpenQASM's maximum rank before IR lowering.
+enforce OpenQASM's maximum rank before IR lowering. Shape equality is conservative
+structural equality after closed arithmetic and simple identity normalization; no arbitrary
+algebraic equality is assumed.
 
 ```lean
 private def classicalArrayElement (element : ResolvedType) : Except Diagnostic ResolvedScalar :=
@@ -243,7 +274,7 @@ partial def resolveType (target : TargetConfig) (environment : ConstantEnvironme
       let element ← classicalArrayElement (← resolveType target environment element)
       match dimensionCount with
       | some count =>
-          let rank ← positiveNat environment "array-reference rank" count
+          let rank ← closedSize "array-reference rank" (← positiveNat environment "array-reference rank" count)
           unless rank <= 7 do throw (diagnostic "array-reference rank cannot exceed 7")
           pure (.arrayRef mutable element none rank)
       | none =>
@@ -282,6 +313,7 @@ structure GateSignature where
 
 structure TypeAnalysis where
   constants : ConstantEnvironment
+  parameters : Array String := #[]
   inputs : Array IOField
   outputs : Array IOField
   callables : Array CallableSignature
@@ -416,6 +448,7 @@ private structure CheckContext where
   gates : Array GateSignature
   returnType : Option (Option ResolvedType) := none
   loopDepth : Nat := 0
+  familyParameters : Array String := #[]
   topLevel : Bool := true
   inSubroutine : Bool := false
   inGate : Bool := false
@@ -432,17 +465,27 @@ private def evalOptionalConst (constants : ConstantEnvironment)
   | none => some fallback
   | some expression => (evalConstInt constants expression).toOption
 
-private def selectionSize? (constants : ConstantEnvironment) : Expression → Option Nat
-  | .set values | .array values => some values.size
+private def selectionSize? (constants : ConstantEnvironment) : Expression → Option Size
+  | .set values | .array values => some (values.size : Size)
   | .range start step stop => do
-      let first : Int ← evalOptionalConst constants start 0
-      let increment : Int ← evalOptionalConst constants step 1
-      let last : Int ← evalOptionalConst constants stop first
-      if increment == 0 then none
-      else if increment > 0 then
-        if first > last then some 0 else some ((last - first).toNat / increment.toNat + 1)
-      else if first < last then some 0
-      else some ((first - last).toNat / increment.natAbs + 1)
+      let first ← match start with
+        | some value => (evalDesignator constants value).toOption
+        | none => some (.literal 0)
+      let last ← match stop with
+        | some value => (evalDesignator constants value).toOption
+        | none => some first
+      let increment ← evalOptionalConst constants step 1
+      match first.closed?, last.closed? with
+      | some first, some last =>
+          if increment == 0 then none
+          else if increment > 0 then
+            some ((if first > last then 0 else (last - first).toNat / increment.toNat + 1 : Nat) : Size)
+          else
+            some ((if first < last then 0 else (first - last).toNat / increment.natAbs + 1 : Nat) : Size)
+      | _, _ =>
+          if increment == 1 then some ⟨last - first + 1⟩
+          else if increment == -1 then some ⟨first - last + 1⟩
+          else none
   | _ => none
 
 ```
@@ -463,19 +506,19 @@ Shared helpers apply the same operand-width rules to built-in and user-defined g
 
 private partial def inferExpression (context : CheckContext) (scopes : Scopes) :
     Expression → Except Diagnostic ResolvedType
-  | .literal (.integer _) => pure (.scalar (.sint context.target.intWidth))
-  | .literal (.float _) => pure (.scalar (.float context.target.floatWidth))
-  | .literal (.imaginary _) => pure (.scalar (.complex context.target.floatWidth))
+  | .literal (.integer _) => pure (.scalar (.sint (context.target.intWidth : Size)))
+  | .literal (.float _) => pure (.scalar (.float (context.target.floatWidth : Size)))
+  | .literal (.imaginary _) => pure (.scalar (.complex (context.target.floatWidth : Size)))
   | .literal (.boolean _) => pure (.scalar .boolean)
   | .literal (.bitstring raw) =>
-      pure (.scalar (.bit (some (raw.replace "_" "").length)))
+      pure (.scalar (.bit (some ((raw.replace "_" "").length : Size))))
   | .literal (.timing _) => pure (.scalar .duration)
   | .identifier name =>
       match lookupBinding scopes name with
       | some binding => pure binding.type
       | none =>
           if ["pi", "π", "tau", "τ", "euler", "ℇ"].contains name then
-            pure (.scalar (.float context.target.floatWidth))
+            pure (.scalar (.float (context.target.floatWidth : Size)))
           else throw (diagnostic s!"use of undeclared identifier '{name}'")
   | .hardwareQubit _ => pure (.scalar (.qubit 1))
   | .unary operator operand => do
@@ -507,7 +550,7 @@ private partial def inferExpression (context : CheckContext) (scopes : Scopes) :
             unless isNumeric left && isNumeric right do
               throw (diagnostic s!"operator '{operator}' requires numeric operands")
             match left, right, operator with
-            | .duration, .duration, "/" => pure (.scalar (.float context.target.floatWidth))
+            | .duration, .duration, "/" => pure (.scalar (.float (context.target.floatWidth : Size)))
             | .duration, .duration, "+" | .duration, .duration, "-" =>
                 pure (.scalar .duration)
             | .duration, _, "*" | .duration, _, "/" | _, .duration, "*" =>
@@ -546,6 +589,9 @@ private partial def inferExpression (context : CheckContext) (scopes : Scopes) :
       let type ← inferExpression context scopes value
       for index in indices do let _ ← inferExpression context scopes index
       let selectedSize := indices[0]?.bind (selectionSize? context.constants)
+      if context.familyParameters.size > 0 && selectedSize.isNone &&
+          indices.any (fun index => match index with | .range .. => true | _ => false) then
+        throw (diagnostic "a family slice must have symbolic bounds and a concrete step of 1 or -1")
       match type with
       | .scalar (.qubit _) => pure (.scalar (.qubit (selectedSize.getD 1)))
       | .scalar (.bit (some _)) => pure (.scalar (.bit none))
@@ -580,7 +626,7 @@ private partial def inferExpression (context : CheckContext) (scopes : Scopes) :
           | .ok 0 => throw (diagnostic "range step cannot be zero")
           | _ => pure ()
       | none => pure ()
-      pure (.array (.sint context.target.intWidth) #[1])
+      pure (.array (.sint (context.target.intWidth : Size)) #[1])
   | .set values | .array values => do
       if values.isEmpty then throw (diagnostic "empty array/set literals are not valid")
       let first ← inferExpression context scopes values[0]!
@@ -589,8 +635,8 @@ private partial def inferExpression (context : CheckContext) (scopes : Scopes) :
         unless compatible first actual do
           throw (diagnostic "array/set literal elements have incompatible types")
       match first with
-      | .scalar element => pure (.array element #[values.size])
-      | .array element shape => pure (.array element (#[values.size] ++ shape))
+      | .scalar element => pure (.array element #[(values.size : Size)])
+      | .array element shape => pure (.array element (#[(values.size : Size)] ++ shape))
       | .arrayRef .. => throw (diagnostic "array references cannot be nested in literals")
   | .measure operand => do
       let count ← checkOperand context scopes operand true
@@ -601,8 +647,8 @@ where
       (arguments : Array Expression) : Except Diagnostic ResolvedType := do
     let inferred ← arguments.mapM (inferExpression context scopes)
     match name, inferred.toList with
-    | "sizeof", [_] | "sizeof", [_, _] => pure (.scalar (.uint context.target.uintWidth))
-    | "popcount", [_] => pure (.scalar (.uint context.target.uintWidth))
+    | "sizeof", [_] | "sizeof", [_, _] => pure (.scalar (.uint (context.target.uintWidth : Size)))
+    | "popcount", [_] => pure (.scalar (.uint (context.target.uintWidth : Size)))
     | "real", [.scalar (.complex width)] | "imag", [.scalar (.complex width)] =>
         pure (.scalar (.float width))
     | "exp", [value@(.scalar (.complex _))] |
@@ -612,12 +658,12 @@ where
         else throw (diagnostic "mod requires integer or floating-point arguments")
     | "sin", [_] | "cos", [_] | "tan", [_] | "arcsin", [_] | "arccos", [_] |
         "arctan", [_] | "exp", [_] | "log", [_] | "sqrt", [_] |
-        "floor", [_] | "ceiling", [_] => pure (.scalar (.float context.target.floatWidth))
+        "floor", [_] | "ceiling", [_] => pure (.scalar (.float (context.target.floatWidth : Size)))
     | "rotl", [value, _] | "rotr", [value, _] => pure value
     | _, _ => throw (diagnostic s!"unknown builtin or invalid arguments: {name}/{arguments.size}")
 
   checkOperand (context : CheckContext) (scopes : Scopes) (operand : Operand)
-      (quantum : Bool) : Except Diagnostic Nat := do
+      (quantum : Bool) : Except Diagnostic Size := do
     match operand with
     | .hardware _ =>
         if quantum then pure 1 else throw (diagnostic "hardware qubit used as a classical operand")
@@ -643,7 +689,7 @@ def TypeAnalysis.inferExpressionType
     Except Diagnostic ResolvedType :=
   let context : CheckContext :=
     { target, constants := analysis.constants, callables := analysis.callables,
-      gates := analysis.gates }
+      gates := analysis.gates, familyParameters := analysis.parameters }
   let scope : Scope := bindings.map fun binding =>
     { name := binding.1, type := binding.2, writable := false }
   inferExpression context [scope] expression
@@ -680,6 +726,13 @@ private partial def checkStatements (context : CheckContext) (initial : Scopes)
   for statement in statements do
     if context.inGate && !allowedInGate statement then
       throw (diagnostic "gate bodies may contain only gate calls, aliases, and loop control")
+    let boundName := match statement with
+      | .qubit name _ | .qreg name _ | .bit name _ | .creg name _ |
+        .classicalDeclaration _ name _ | .constDeclaration _ name _ |
+        .ioDeclaration _ _ name | .aliasDeclaration name _ | .forStatement _ name _ _ => some name
+      | _ => none
+    if boundName.any context.familyParameters.contains then
+      throw (diagnostic "a QASM declaration cannot shadow a Lean family parameter")
     match statement with
     | .includeFile _ | .pragma _ | .calibrationGrammar _ | .calStatement _ |
         .defcalStatement _ _ => pure ()
@@ -807,7 +860,7 @@ private partial def checkStatements (context : CheckContext) (initial : Scopes)
           | .control _ count =>
               let added ← match count with
                 | none => pure 1
-                | some count => positiveNat context.constants "control count" count
+                | some count => closedSize "control count" (← positiveNat context.constants "control count" count)
               controlCount := controlCount + added
           | .power exponent => let _ ← inferExpression context scopes exponent
           | .inverse => pure ()
@@ -851,9 +904,10 @@ signatures. This ordering makes widths and shapes available before any body is c
 
 ```lean
 
-private def collectConstants (target : TargetConfig) (program : Program) :
+private def collectConstants (target : TargetConfig) (program : Program)
+    (parameters : Array String) :
     Except Diagnostic ConstantEnvironment := do
-  let mut constants : ConstantEnvironment := []
+  let mut constants : ConstantEnvironment := parameters.toList.map (fun name => (name, .parameter name))
   for statement in program.statements do
     match statement with
     | .constDeclaration type name value =>
@@ -863,7 +917,7 @@ private def collectConstants (target : TargetConfig) (program : Program) :
         match resolved with
         | .scalar (.sint _) | .scalar (.uint _) | .scalar (.bit _) |
             .scalar (.angle _) | .scalar .boolean =>
-            let value ← evalConstInt constants value
+            let value ← evalDesignator constants value
             constants := (name, value) :: constants
         | _ => pure ()
     | _ => pure ()
@@ -920,23 +974,29 @@ for the elaborator.
 ```lean
 
 /-- Performs target-aware type resolution, scope checking, and arity validation. -/
-def analyzeTypes (target : TargetConfig) (program : Program) :
+def analyzeTypes (target : TargetConfig) (program : Program) (familyParameters : Array String := #[]) :
     Except (Array Diagnostic) TypeAnalysis := do
   let result : Except Diagnostic TypeAnalysis := do
-    let constants ← collectConstants target program
+    let constants ← collectConstants target program familyParameters
     let (callables, gates) ← collectSignatures target constants program
-    let context : CheckContext := { target, constants, callables, gates }
-    let global ← checkStatements context [[]] program.statements
+    let context : CheckContext := { target, constants, callables, gates, familyParameters }
+    let mut parameterScope : Scope := []
+    for name in familyParameters do
+      let scopes ← addBinding [parameterScope] ⟨name, .scalar (.uint (target.uintWidth : Size)), false⟩
+      parameterScope := scopes.head!
+    let global ← checkStatements context [parameterScope] program.statements
     for statement in program.statements do
       match statement with
       | .defStatement name arguments _returnType body =>
           let signature := callables.find? (fun candidate => candidate.name == name) |>.get!
           let constantScope := global.head!.filter fun binding =>
-            program.statements.any fun statement => match statement with
+            familyParameters.contains binding.name || program.statements.any fun statement => match statement with
               | .constDeclaration _ constantName _ => constantName == binding.name
               | _ => false
           let mut localScopes : Scopes := [[], constantScope]
           for pair in arguments.zip signature.arguments do
+            if familyParameters.contains pair.1.name then
+              throw (diagnostic "a subroutine argument cannot shadow a Lean family parameter")
             localScopes ← addBinding localScopes ⟨pair.1.name, pair.2,
               match pair.1.type with | .arrayRef false _ _ _ => false | _ => true⟩
           let bodyContext := { { { context with topLevel := false } with
@@ -944,14 +1004,18 @@ def analyzeTypes (target : TargetConfig) (program : Program) :
           let _ ← checkStatements bodyContext localScopes body
       | .gateDefinition _name parameters qubits body =>
           let constantScope := global.head!.filter fun binding =>
-            program.statements.any fun statement => match statement with
+            familyParameters.contains binding.name || program.statements.any fun statement => match statement with
               | .constDeclaration _ constantName _ => constantName == binding.name
               | _ => false
           let mut localScopes : Scopes := [[], constantScope]
           for parameter in parameters do
+            if familyParameters.contains parameter then
+              throw (diagnostic "a gate argument cannot shadow a Lean family parameter")
             localScopes ← addBinding localScopes ⟨parameter,
-              .scalar (.angle target.angleWidth), false⟩
+              .scalar (.angle (target.angleWidth : Size)), false⟩
           for qubit in qubits do
+            if familyParameters.contains qubit then
+              throw (diagnostic "a gate qubit cannot shadow a Lean family parameter")
             localScopes ← addBinding localScopes ⟨qubit, .scalar (.qubit 1), false⟩
           let bodyContext := { { context with topLevel := false, inGate := true } with loopDepth := 0 }
           let _ ← checkStatements bodyContext localScopes body
@@ -964,7 +1028,7 @@ def analyzeTypes (target : TargetConfig) (program : Program) :
           let field := IOField.mk name (← resolveType target constants type)
           if input then inputs := inputs.push field else outputs := outputs.push field
       | _ => pure ()
-    pure ⟨constants, inputs, outputs, callables, gates⟩
+    pure { constants, parameters := familyParameters, inputs, outputs, callables, gates }
   match result with
   | .ok analysis => pure analysis
   | .error error => throw #[error]

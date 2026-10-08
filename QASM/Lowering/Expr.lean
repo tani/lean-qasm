@@ -26,6 +26,8 @@ SI duration literals use a single base unit. For example,
 ```lean
 namespace QASM.Lowering
 
+open QASM.Parameters
+
 open QASM
 
 ```
@@ -112,10 +114,10 @@ private def builtin : String → Option QASM.IR.Builtin
   | "rotr" => some .rotr
   | _ => none
 
-private def namedConstant? (target : QASM.TargetConfig) : String → Option QASM.IR.Expr
-  | "pi" | "π" => some { type := .scalar (.float target.floatWidth), node := .floatLit 3.141592653589793 }
-  | "tau" | "τ" => some { type := .scalar (.float target.floatWidth), node := .floatLit 6.283185307179586 }
-  | "euler" | "ℇ" => some { type := .scalar (.float target.floatWidth), node := .floatLit 2.718281828459045 }
+private def namedConstant? (target : QASM.TargetConfig) : String → Option (QASM.IR.Expr Size Integer)
+  | "pi" | "π" => some { type := .scalar (.float (target.floatWidth : Size)), node := .floatLit 3.141592653589793 }
+  | "tau" | "τ" => some { type := .scalar (.float (target.floatWidth : Size)), node := .floatLit 6.283185307179586 }
+  | "euler" | "ℇ" => some { type := .scalar (.float (target.floatWidth : Size)), node := .floatLit 2.718281828459045 }
   | _ => none
 
 ```
@@ -128,14 +130,14 @@ and casts retain only their already-resolved target type. Measurement is deliber
 excluded: the process pass hoists that effect before invoking this pure translation.
 
 ```lean
-partial def expression (source : QASM.Frontend.Expression) : LowerM QASM.IR.Expr := do
+partial def expression (source : QASM.Frontend.Expression) : LowerM (QASM.IR.Expr Size Integer) := do
   let context ← get
   let inferred ← inferType source
   let type := resolvedType inferred
   let origin := sourceOrigin context.options
   let node ← match source with
     | .literal (.integer raw) =>
-        pure (.intLit (QASM.Value.integerLiteral raw |>.asInt))
+        pure (.intLit (.literal (QASM.Value.integerLiteral raw |>.asInt)))
     | .literal (.float raw) => pure (.floatLit (← parseFloat raw))
     | .literal (.imaginary raw) =>
         pure (.imaginaryLit (← parseFloat (raw.dropEnd 2 |>.trimAscii |>.toString)))
@@ -148,7 +150,7 @@ partial def expression (source : QASM.Frontend.Expression) : LowerM QASM.IR.Expr
         else pure (.durationLit (← durationSeconds raw))
     | .identifier name =>
         match lookupLocalConstant? context name with
-        | some value => pure (.intLit value)
+        | some value => pure (.intLit (value : Integer))
         | none => match lookupBinding? context name with
           | some binding => pure (.var binding.var.id)
           | none => match lookupConstant? context name with
@@ -200,7 +202,7 @@ private partial def lvalueParts : QASM.Frontend.Expression →
       pure (name, groups.push indices)
   | value => throw (diagnostic s!"invalid lvalue {value.toQasm}")
 
-def lvalue (source : QASM.Frontend.Expression) : LowerM QASM.IR.LValue := do
+def lvalue (source : QASM.Frontend.Expression) : LowerM (QASM.IR.LValue Size Integer) := do
   let context ← get
   let (name, groups) ← match lvalueParts source with
     | .ok value => pure value
@@ -210,12 +212,12 @@ def lvalue (source : QASM.Frontend.Expression) : LowerM QASM.IR.LValue := do
     | none => fail s!"lvalue root '{name}' was not resolved"
   let groups ← groups.mapM fun group => group.mapM expression
   let targetType := resolvedType (← inferType source)
-  let result : QASM.IR.LValue :=
+  let result : (QASM.IR.LValue Size Integer) :=
     { root := binding.var.id, indices := groups,
       type := targetType, origin := sourceOrigin context.options }
   pure result
 
-def operandLValue (source : QASM.Frontend.Operand) : LowerM QASM.IR.LValue := do
+def operandLValue (source : QASM.Frontend.Operand) : LowerM (QASM.IR.LValue Size Integer) := do
   match source with
   | .hardware index => fail s!"physical qubit ${index} cannot be a classical target"
   | .identifier name groups =>
@@ -230,7 +232,7 @@ def operandLValue (source : QASM.Frontend.Operand) : LowerM QASM.IR.LValue := do
       let targetType := match type with
         | .scalar (.bit width) => QASM.IR.Type.scalar (.bit width)
         | other => resolvedType other
-      let result : QASM.IR.LValue :=
+      let result : (QASM.IR.LValue Size Integer) :=
         { root := binding.var.id, indices := lowered,
           type := targetType, origin := sourceOrigin context.options }
       pure result
@@ -245,7 +247,7 @@ quantum operands, array references become lvalues with explicit mutability, and 
 arguments remain typed expressions.
 
 ```lean
-def quantumOperand (source : QASM.Frontend.Operand) : LowerM QASM.IR.QuantumOperand := do
+def quantumOperand (source : QASM.Frontend.Operand) : LowerM (QASM.IR.QuantumOperand Size Integer) := do
   match source with
   | .hardware index => pure (.physical index)
   | .identifier name groups =>
@@ -259,14 +261,14 @@ def quantumOperand (source : QASM.Frontend.Operand) : LowerM QASM.IR.QuantumOper
       pure (.wire binding.var.id indices false)
 
 partial def quantumExpressionOperand
-    (source : QASM.Frontend.Expression) : LowerM QASM.IR.QuantumOperand := do
+    (source : QASM.Frontend.Expression) : LowerM (QASM.IR.QuantumOperand Size Integer) := do
   match source with
   | .identifier name => quantumOperand (.identifier name #[])
   | .index (.identifier name) indices => quantumOperand (.identifier name #[indices])
   | value => fail s!"quantum argument '{value.toQasm}' is not an operand"
 
 def argument (expected : QASM.Frontend.ResolvedType)
-    (source : QASM.Frontend.Expression) : LowerM QASM.IR.Argument :=
+    (source : QASM.Frontend.Expression) : LowerM (QASM.IR.Argument Size Integer) :=
   match expected with
   | .scalar (.qubit _) => .quantum <$> quantumExpressionOperand source
   | .arrayRef mutable _ _ _ => do pure (.arrayRef (← lvalue source) mutable)

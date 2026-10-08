@@ -1,5 +1,6 @@
     import LiterateLean
     import QASM
+    import Tests.Parametric
     open scoped LiterateLean
 
 # End-to-end LeanQASM tests
@@ -818,6 +819,7 @@ IR emission round trips last.
 namespace QASMTests
 open QASM
 def run : IO Unit := do
+  Parametric.run
   testNativeControl
   testInput
   testQuantumBackend

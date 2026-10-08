@@ -3,8 +3,10 @@
     import QASM.Runtime.TraceBackend
     import QASM.Diagram
     import QASM.IR.Program
+    import QASM.IR.Substitution
     import QASM.IR.Equiv
     import QASM.Execution.Interpreter
+    import QASM.Execution.Semantics
     import QASM.Diagram.ProgramHtmlEval
     import QASM.Emit
     import QASM.Frontend
@@ -32,8 +34,11 @@ graph and the ownership boundaries expressed by the directory structure:
 2. `Diagram.Model` owns backend-independent presentation data, while `Diagram` renders
    that model without depending on parsing or elaboration.
 3. `IR.Program` defines the canonical compilation unit and `IR.Equiv` defines the
-   equality relations used by emitters and round-trip checks.
+   equality relations used by emitters and round-trip checks. `IR.Substitution` provides
+   total size and integer substitution and proves preservation of circuit interfaces.
 4. `Execution.Interpreter` evaluates canonical IR through the runtime backend boundary.
+   `Execution.Semantics` provides relational control-flow laws for proofs, with expression
+   and atomic-operation behavior supplied by a model; interpreter refinement remains separate.
 5. `Diagram.ProgramHtmlEval` projects immutable IR into diagrams, and `Emit` exposes
    canonical OpenQASM rendering.
 6. `Frontend`, `Frontend.Semantics`, and `Frontend.Typing` parse and validate source while

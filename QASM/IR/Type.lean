@@ -3,8 +3,9 @@
 
 # Resolved IR types
 
-IR types contain only resolved widths, array shapes, and reference ranks; they never
-depend on elaboration state or source expressions. Scalar `bit` keeps `none` distinct from
+Concrete IR types use natural-number widths and shapes. The optional size type
+parameter lets compilation use symbolic sizes with the same grammar; the default remains
+`Nat`, and runtime consumers never depend on elaborator state. Scalar `bit` keeps `none` distinct from
 `bit[1]`, array references record mutability separately from shape knowledge, and `void`,
 qubit, and stretch remain explicit so capability failures cannot masquerade as classical
 values.
@@ -17,30 +18,31 @@ The resolved type grammar can be summarized as
       \mid \mathrm{arrayRef}(m, s, \sigma, k),
 ```
 
-where every $`n_i`$ and rank $`k`$ is concrete. The optional shape $`\sigma`$ records whether
+In concrete programs every $`n_i`$ is a natural number; rank $`k`$ stays concrete in
+compilation templates as well. The optional shape $`\sigma`$ records whether
 an array-reference extent is known without conflating unknown shape with scalar type.
 
 ```lean
 namespace QASM.IR
 
-inductive ScalarTy where
-  | bit (width : Option Nat)
-  | sint (width : Nat)
-  | uint (width : Nat)
-  | float (width : Nat)
-  | angle (width : Nat)
+inductive ScalarTy (size : Type := Nat) where
+  | bit (width : Option size)
+  | sint (width : size)
+  | uint (width : size)
+  | float (width : size)
+  | angle (width : size)
   | boolean
-  | complex (width : Nat)
+  | complex (width : size)
   | duration
   | stretch
-  | qubit (count : Nat)
+  | qubit (count : size)
   | void
   deriving Repr, BEq, DecidableEq, Hashable, Inhabited
 
-inductive «Type» where
-  | scalar (value : ScalarTy)
-  | array (element : ScalarTy) (shape : Array Nat)
-  | arrayRef (mutable : Bool) (element : ScalarTy) (shape : Option (Array Nat)) (rank : Nat)
+inductive «Type» (size : Type := Nat) where
+  | scalar (value : (ScalarTy size))
+  | array (element : (ScalarTy size)) (shape : Array size)
+  | arrayRef (mutable : Bool) (element : (ScalarTy size)) (shape : Option (Array size)) (rank : Nat)
   deriving Repr, BEq, DecidableEq, Hashable, Inhabited
 
 end QASM.IR

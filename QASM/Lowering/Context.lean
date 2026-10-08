@@ -24,6 +24,8 @@ $`v_{n+1} \gt v_n`$, while scope exit changes visibility but never reuses an ide
 ```lean
 namespace QASM.Lowering
 
+open QASM.Parameters
+
 open QASM
 
 ```
@@ -44,7 +46,7 @@ structure LoweringOptions where
   deriving Inhabited
 
 structure Binding where
-  var           : QASM.IR.Var
+  var           : (QASM.IR.Var Size)
   sourceType    : QASM.Frontend.ResolvedType
   writable      : Bool
   quantum       : Bool
@@ -98,9 +100,9 @@ abbrev LowerM := StateT Context (Except QASM.Diagnostic)
 ## Diagnostics and representation conversion
 
 Lowering reuses frontend diagnostics so parse, type, and lowering failures share one
-public error channel. These conversion functions are intentionally structural: all target
-defaults and array dimensions were resolved by typing, so conversion cannot perform new
-inference. Primitive gate recognition similarly maps only the checked standard vocabulary;
+public error channel. These conversion functions are intentionally structural: target
+defaults and array dimensions were checked by typing. Dimensions may remain symbolic,
+but conversion cannot perform new inference. Primitive gate recognition similarly maps only the checked standard vocabulary;
 an unknown name must already have a user declaration.
 
 ```lean
@@ -112,7 +114,7 @@ def fail {α : Type} (message : String) : LowerM α :=
 def sourceOrigin (options : LoweringOptions) : QASM.IR.SourceSpan :=
   { fileName := options.origins[0]?.map (·.1) |>.getD "" }
 
-def scalarType : QASM.Frontend.ResolvedScalar → QASM.IR.ScalarTy
+def scalarType : QASM.Frontend.ResolvedScalar → (QASM.IR.ScalarTy Size)
   | .bit width => .bit width
   | .sint width => .sint width
   | .uint width => .uint width
@@ -125,7 +127,7 @@ def scalarType : QASM.Frontend.ResolvedScalar → QASM.IR.ScalarTy
   | .qubit count => .qubit count
   | .void => .void
 
-def resolvedType : QASM.Frontend.ResolvedType → QASM.IR.Type
+def resolvedType : QASM.Frontend.ResolvedType → (QASM.IR.Type Size)
   | .scalar value => .scalar (scalarType value)
   | .array element shape => .array (scalarType element) shape
   | .arrayRef mutable element shape rank => .arrayRef mutable (scalarType element) shape rank
@@ -192,7 +194,11 @@ private partial def unannotated : QASM.Frontend.Statement → QASM.Frontend.Stat
 private def collectDeclaredEntries
     (options : LoweringOptions) (analysis : QASM.Frontend.TypeAnalysis)
     (program : QASM.Frontend.Program) : Except QASM.Diagnostic DeclarationTables := do
-  let mut tables : DeclarationTables := {}
+  let parameterType : QASM.Frontend.ResolvedType := .scalar (.uint (options.target.uintWidth : Size))
+  let parameterEntries := analysis.parameters.mapIdx fun index name =>
+    ({ id := ⟨index⟩, name, type := parameterType } : ConstantEntry)
+  let mut tables : DeclarationTables :=
+    { constants := parameterEntries, nextDeclId := parameterEntries.size }
   let mut nextCallableId := 0
   for original in program.statements do
     match unannotated original with
@@ -250,7 +256,7 @@ def lookupBinding? (context : Context) (name : String) : Option Binding :=
 def lookupConstant? (context : Context) (name : String) : Option ConstantEntry :=
   context.tables.constants.find? (·.name == name)
 def lookupLocalConstant? (context : Context) (name : String) : Option Int :=
-  (context.localConstants.find? (·.1 == name)).map (·.2)
+  (context.localConstants.find? (·.1 == name)).bind (·.2.closed?)
 
 
 def lookupExtern? (context : Context) (name : String) : Option ExternEntry :=
@@ -295,7 +301,7 @@ replace the caller's scope stack, then restore it after collecting local declara
 def freshBinding (name : String) (type : QASM.Frontend.ResolvedType)
     (writable : Bool) (wirePositions : Option (Array Nat) := none) : LowerM Binding := do
   let context ← get
-  let var : QASM.IR.Var :=
+  let var : (QASM.IR.Var Size) :=
     { id := ⟨context.nextVarId⟩, name, type := resolvedType type,
       origin := sourceOrigin context.options }
   let binding : Binding :=

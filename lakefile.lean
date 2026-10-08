@@ -13,6 +13,10 @@ require "leanprover-community" / "proofwidgets" @ git "v0.0.105"
 lean_lib QASM where
   roots := #[`QASM]
 
+lean_lib QASMTestSupport where
+  roots := #[`Tests.Parametric]
+  globs := #[.one `Tests.Parametric]
+
 @[test_driver]
 lean_exe lean_qasm_tests where
   root := `Tests.Main

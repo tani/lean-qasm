@@ -30,15 +30,15 @@ $`\mathrm{cod}(f)=\mathrm{dom}(g)`$.
 ```lean
 namespace QASM.IR
 
-inductive Circuit
+inductive Circuit (size : Type := Nat) (integer : Type := Int)
   | identity   (wires : Interface)
-  | primitive  (prim : Primitive)
-  | compose    (f g : Circuit)
-  | tensor     (f g : Circuit)
+  | primitive  (prim : (Primitive size integer))
+  | compose    (f g : (Circuit size integer))
+  | tensor     (f g : (Circuit size integer))
   | permute    (perm : WirePermutation)
-  | inverse    (circuit : Circuit)
-  | power      (exponent : Expr) (circuit : Circuit)
-  | controlled (spec : ControlSpec) (circuit : Circuit)
+  | inverse    (circuit : (Circuit size integer))
+  | power      (exponent : (Expr size integer)) (circuit : (Circuit size integer))
+  | controlled (spec : ControlSpec) (circuit : (Circuit size integer))
   | unsupported (capability : Capability) (detail : String)
       (input output : Interface)
   deriving Repr, BEq, Inhabited
@@ -47,7 +47,8 @@ inductive Circuit
 
 ## Structural interfaces
 
-`dom` and `cod` are total structural projections. Composition takes its outer interfaces,
+`dom` and `cod` are total, kernel-reducible structural projections. Their defining
+equations can be used in proofs without executing or specializing a circuit. Composition takes its outer interfaces,
 tensor concatenates its children, modifiers preserve boundaries, and unsupported nodes
 return their recorded interfaces. Lowering is responsible for constructing only
 well-matched compositions and valid permutations.
@@ -56,7 +57,7 @@ well-matched compositions and valid permutations.
 namespace Circuit
 
 mutual
-partial def dom : Circuit → Interface
+def dom {size integer : Type} : (Circuit size integer) → Interface
   | identity w => w
   | primitive p => p.input
   | compose f _ => dom f
@@ -67,7 +68,7 @@ partial def dom : Circuit → Interface
   | controlled s c => s.controls ++ dom c
   | unsupported _ _ input _ => input
 
-partial def cod : Circuit → Interface
+def cod {size integer : Type} : (Circuit size integer) → Interface
   | identity w => w
   | primitive p => p.output
   | compose _ g => cod g

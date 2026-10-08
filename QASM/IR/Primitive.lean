@@ -37,10 +37,10 @@ inductive PrimitiveKind
   | userDefined (id : DeclId)
   deriving Repr, BEq, DecidableEq, Hashable, Inhabited
 
-structure Primitive where
+structure Primitive (size : Type := Nat) (integer : Type := Int) where
   kind       : PrimitiveKind
   name       : Name
-  parameters : Array Expr := #[]
+  parameters : Array (Expr size integer) := #[]
   input      : Interface
   output     : Interface
   origin     : SourceSpan := {}

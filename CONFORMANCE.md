@@ -91,3 +91,20 @@ Backends receive portable `Unitary` trees and may compile them to their target.
 
 The grammar, examples, and license under `Tests/Fixtures/OpenQASM30` are copied
 from the official `spec/v3.0.0` tag.
+
+## Lean parameterized families
+
+`qasm! Name (n : Nat) { ... }` is a Lean embedding extension, not OpenQASM syntax.
+Compilation retains symbolic widths and extents and emits `Name.program : Nat → IR.Program`,
+dependent I/O structures, and a `Name.Valid` positivity predicate. Multiple separate
+natural-number binders, symbolic integer constant aliases, and `+`, `-`, `*` designators
+are supported. No representative numerical value is used for family type checking.
+Shapes use conservative structural equality; symbolic slices require a fixed step of
+`1` or `-1`. QASM bindings may not shadow a family parameter.
+
+Floating-point widths, array ranks, modifier control counts, and gate-body expansion bounds
+remain fixed. Parameter-dependent process loops are retained and evaluated at runtime.
+`Valid` establishes positive residual sizes only. Bounds checks, runtime errors, termination,
+backend laws, and refinement of the runtime interpreter to the relational proof semantics
+remain distinct obligations. The proof semantics covers finite successful control flow;
+it does not establish probabilistic or divergence-sensitive equivalence.

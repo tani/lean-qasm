@@ -26,6 +26,8 @@ flowchart LR
 ```lean
 namespace QASM.Lowering
 
+open QASM.Parameters
+
 open QASM
 
 ```
@@ -45,20 +47,20 @@ private def controlCount (count : Option QASM.Frontend.Expression) : LowerM Nat 
       let count ← evalConstInt value
       if count <= 0 then fail "gate control count must be positive" else pure count.toNat
 
-def gateModifier : QASM.Frontend.GateModifier → LowerM QASM.IR.GateModifier
+def gateModifier : QASM.Frontend.GateModifier → LowerM (QASM.IR.GateModifier Size Integer)
   | .inverse => pure .inverse
   | .power exponent => .power <$> expression exponent
   | .control negative count => do pure (.control negative (← controlCount count))
 
 def gateReference (modifiers : Array QASM.Frontend.GateModifier) (name : String)
-    (parameters : Array QASM.Frontend.Expression) : LowerM QASM.IR.CircuitRef := do
+    (parameters : Array QASM.Frontend.Expression) : LowerM (QASM.IR.CircuitRef Size Integer) := do
   let context ← get
   let gate ← match lookupGate? context name with
     | some gate => pure gate
     | none => fail s!"gate '{name}' was not resolved"
   let parameters ← parameters.mapM expression
   let modifiers ← modifiers.mapM gateModifier
-  let result : QASM.IR.CircuitRef :=
+  let result : (QASM.IR.CircuitRef Size Integer) :=
     { target := gate.kind, name, parameters, modifiers,
       origin := sourceOrigin context.options }
   pure result
@@ -143,7 +145,7 @@ private def allDistinct (values : Array Nat) : Bool :=
   values.toList.Pairwise (· != ·)
 
 private def placeAction (wireCount : Nat) (positions : Array Nat)
-    (action : QASM.IR.Circuit) (origin : QASM.IR.SourceSpan) : LowerM QASM.IR.Circuit := do
+    (action : (QASM.IR.Circuit Size Integer)) (origin : QASM.IR.SourceSpan) : LowerM (QASM.IR.Circuit Size Integer) := do
   let arity := QASM.IR.Circuit.dom action |>.length
   unless positions.size == arity do
     fail s!"circuit action expects {arity} wires, got {positions.size}"
@@ -152,17 +154,17 @@ private def placeAction (wireCount : Nat) (positions : Array Nat)
   let remaining := (Array.range wireCount).filter (!positions.contains ·)
   let order := positions ++ remaining
   let interface := fullInterface wireCount
-  let pre : QASM.IR.Circuit := .permute
+  let pre : (QASM.IR.Circuit Size Integer) := .permute
     { domain := interface, codomain := interface, mapping := order, origin }
   let parallel := if remaining.isEmpty then action else
     QASM.IR.Circuit.tensor action (.identity (fullInterface remaining.size))
   let inverse := (Array.range wireCount).map fun position => order.toList.idxOf position
-  let post : QASM.IR.Circuit := .permute
+  let post : (QASM.IR.Circuit Size Integer) := .permute
     { domain := interface, codomain := interface, mapping := inverse, origin }
   pure (.compose pre (.compose parallel post))
 
-private def applyModifiers (modifiers : Array QASM.IR.GateModifier)
-    (origin : QASM.IR.SourceSpan) (action : QASM.IR.Circuit) : QASM.IR.Circuit :=
+private def applyModifiers (modifiers : Array (QASM.IR.GateModifier Size Integer))
+    (origin : QASM.IR.SourceSpan) (action : (QASM.IR.Circuit Size Integer)) : (QASM.IR.Circuit Size Integer) :=
   modifiers.foldr (fun modifier action => match modifier with
     | .inverse => .inverse action
     | .power exponent => .power exponent action
@@ -174,7 +176,7 @@ private def applyModifiers (modifiers : Array QASM.IR.GateModifier)
           action) action
 
 private def composeCircuits (interface : QASM.IR.Interface)
-    (circuits : Array QASM.IR.Circuit) : QASM.IR.Circuit :=
+    (circuits : Array (QASM.IR.Circuit Size Integer)) : (QASM.IR.Circuit Size Integer) :=
   circuits.foldl QASM.IR.Circuit.compose (.identity interface)
 
 ```
@@ -197,7 +199,7 @@ private def broadcastPositions (operands : Array (Array Nat)) : LowerM (Array (A
 private def gateCallCircuit (wireCount : Nat)
     (modifiers : Array QASM.Frontend.GateModifier) (name : String)
     (parameters : Array QASM.Frontend.Expression) (designator : Option QASM.Frontend.Expression)
-    (operands : Array QASM.Frontend.Operand) : LowerM QASM.IR.Circuit := do
+    (operands : Array QASM.Frontend.Operand) : LowerM (QASM.IR.Circuit Size Integer) := do
   let context ← get
   let interface := fullInterface wireCount
   if designator.isSome then
@@ -212,7 +214,7 @@ private def gateCallCircuit (wireCount : Nat)
     let lanes ← broadcastPositions operandGroups
     let mut applications := #[]
     for positions in lanes do
-      let primitive : QASM.IR.Primitive :=
+      let primitive : (QASM.IR.Primitive Size Integer) :=
         { kind := gate.kind, name, parameters,
           input := fullInterface gate.qubitCount, output := fullInterface gate.qubitCount,
           origin := sourceOrigin context.options }
@@ -238,7 +240,7 @@ private inductive CircuitSignal
   deriving Inhabited, BEq
 
 private structure CircuitResult where
-  circuit : QASM.IR.Circuit
+  circuit : (QASM.IR.Circuit Size Integer)
   signal  : CircuitSignal := .next
   deriving Inhabited
 
@@ -285,7 +287,7 @@ private partial def circuitStatement (wireCount : Nat)
       for value in values do
         pushScope
         let _ ← freshBinding iterator iteratorType true
-        modify fun context => { context with localConstants := (iterator, value) :: savedConstants }
+        modify fun context => { context with localConstants := (iterator, (value : Integer)) :: savedConstants }
         let result ← circuitStatements wireCount body
         popScope
         modify fun context => { context with localConstants := savedConstants }
@@ -310,7 +312,7 @@ the same domain and codomain as the declared qubit parameter list.
 
 ```lean
 def gateBody (wireCount : Nat) (statements : Array QASM.Frontend.Statement) :
-    LowerM QASM.IR.Circuit := do
+    LowerM (QASM.IR.Circuit Size Integer) := do
   let result ← circuitStatements wireCount statements
   unless result.signal == .next do fail "break/continue escaped a gate loop"
   pure result.circuit

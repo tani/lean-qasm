@@ -38,60 +38,60 @@ parameters and modifiers. Atomic operations are the only process nodes allowed t
 interpreter state or cross `QuantumBackend`.
 
 ```lean
-inductive QuantumOperand
-  | wire     (var : VarId) (indices : Array Expr := #[]) (approximate : Bool := false)
+inductive QuantumOperand (size : Type := Nat) (integer : Type := Int)
+  | wire     (var : VarId) (indices : Array (Expr size integer) := #[]) (approximate : Bool := false)
   | physical (index : Nat)
   deriving Repr, BEq, Inhabited
 
-inductive ClassicalTarget
-  | lvalue (target : LValue)
+inductive ClassicalTarget (size : Type := Nat) (integer : Type := Int)
+  | lvalue (target : (LValue size integer))
   | discard
   deriving Repr, BEq, Inhabited
 
-structure QuantumDecl where
+structure QuantumDecl (size : Type := Nat) where
   var    : VarId
   name   : Name
-  size   : Nat
+  size   : size
   origin : SourceSpan := {}
   deriving Repr, BEq, Inhabited
 
-inductive GateModifier
+inductive GateModifier (size : Type := Nat) (integer : Type := Int)
   | inverse
-  | power   (exponent : Expr)
+  | power   (exponent : (Expr size integer))
   | control (negate : Bool) (count : Nat)
   deriving Repr, BEq, Inhabited
 
-structure CircuitRef where
+structure CircuitRef (size : Type := Nat) (integer : Type := Int) where
   target     : PrimitiveKind
   name       : Name
-  parameters : Array Expr := #[]
-  modifiers  : Array GateModifier := #[]
+  parameters : Array (Expr size integer) := #[]
+  modifiers  : Array (GateModifier size integer) := #[]
   origin     : SourceSpan := {}
   deriving Repr, BEq, Inhabited
 
-inductive Argument
-  | expr     (value : Expr)
-  | quantum  (operand : QuantumOperand)
-  | arrayRef (target : LValue) (mutable : Bool)
+inductive Argument (size : Type := Nat) (integer : Type := Int)
+  | expr     (value : (Expr size integer))
+  | quantum  (operand : (QuantumOperand size integer))
+  | arrayRef (target : (LValue size integer)) (mutable : Bool)
   deriving Repr, BEq, Inhabited
 
-structure ExternCall where
+structure ExternCall (size : Type := Nat) (integer : Type := Int) where
   callee    : DeclId
-  arguments : Array Expr := #[]
+  arguments : Array (Expr size integer) := #[]
   origin    : SourceSpan := {}
   deriving Repr, BEq, Inhabited
 
-inductive Op
-  | eval        (value : Expr)
-  | declare     (var : Var) (init : Option Expr)
-  | assign      (target : LValue) (value : Expr)
-  | apply       (gate : CircuitRef) (operands : Array QuantumOperand)
-  | measure     (source : QuantumOperand) (target : ClassicalTarget)
-  | reset       (operand : QuantumOperand)
-  | barrier     (operands : Array QuantumOperand)
-  | allocate    (decl : QuantumDecl)
-  | call        (callee : CallableId) (arguments : Array Argument)
-  | emitExtern  (call : ExternCall)
+inductive Op (size : Type := Nat) (integer : Type := Int)
+  | eval        (value : (Expr size integer))
+  | declare     (var : (Var size)) (init : Option (Expr size integer))
+  | assign      (target : (LValue size integer)) (value : (Expr size integer))
+  | apply       (gate : (CircuitRef size integer)) (operands : Array (QuantumOperand size integer))
+  | measure     (source : (QuantumOperand size integer)) (target : (ClassicalTarget size integer))
+  | reset       (operand : (QuantumOperand size integer))
+  | barrier     (operands : Array (QuantumOperand size integer))
+  | allocate    (decl : (QuantumDecl size))
+  | call        (callee : CallableId) (arguments : Array (Argument size integer))
+  | emitExtern  (call : (ExternCall size integer))
   | unsupported (capability : Capability) (detail : String)
   deriving Repr, BEq, Inhabited
 
@@ -104,35 +104,35 @@ typing. `Proc.scope` names every local binding that must be restored on exit, an
 flow nodes model `break`, `continue`, `return`, and `end` without exceptions or closures.
 
 ```lean
-inductive IterationDomain
-  | range (start step stop : Expr)
-  | set   (values : Array Expr)
-  | array (value : Expr)
+inductive IterationDomain (size : Type := Nat) (integer : Type := Int)
+  | range (start step stop : (Expr size integer))
+  | set   (values : Array (Expr size integer))
+  | array (value : (Expr size integer))
   deriving Repr, BEq, Inhabited
 
 mutual
-inductive Proc
+inductive Proc (size : Type := Nat) (integer : Type := Int)
   | skip
-  | operation   (op : Op)
-  | sequence    (steps : Array Proc)
-  | scope       (locals : Array Var) (body : Proc)
-  | branch      (cond : Expr) (thenBranch : Proc) (elseBranch : Option Proc)
-  | switch      (scrutinee : Expr) (cases : Array SwitchCase) (default : Option Proc)
-  | forLoop     (iterator : Var) (domain : IterationDomain) (body : Proc)
-  | whileLoop   (cond : Expr) (body : Proc)
+  | operation   (op : (Op size integer))
+  | sequence    (steps : Array (Proc size integer))
+  | scope       (locals : Array (Var size)) (body : (Proc size integer))
+  | branch      (cond : (Expr size integer)) (thenBranch : (Proc size integer)) (elseBranch : Option (Proc size integer))
+  | switch      (scrutinee : (Expr size integer)) (cases : Array (SwitchCase size integer)) (default : Option (Proc size integer))
+  | forLoop     (iterator : (Var size)) (domain : (IterationDomain size integer)) (body : (Proc size integer))
+  | whileLoop   (cond : (Expr size integer)) (body : (Proc size integer))
   | breakLoop
   | continueLoop
-  | returnValue (value : Option Expr)
+  | returnValue (value : Option (Expr size integer))
   | endProgram
-inductive SwitchCase
-  | mk (labels : Array Expr) (body : Proc)
+inductive SwitchCase (size : Type := Nat) (integer : Type := Int)
+  | mk (labels : Array (Expr size integer)) (body : (Proc size integer))
 end
 
 deriving instance Repr, BEq for Proc, SwitchCase
 
-instance : Inhabited Proc := ⟨.skip⟩
+instance {size integer : Type} : Inhabited (Proc size integer) := ⟨.skip⟩
 
-instance : Inhabited SwitchCase := ⟨.mk #[] .skip⟩
+instance {size integer : Type} : Inhabited (SwitchCase size integer) := ⟨.mk #[] .skip⟩
 
 end QASM.IR
 ```

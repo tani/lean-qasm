@@ -4,7 +4,9 @@
 
 # Canonical IR program
 
-`Program` is the complete persistent result of lowering. The runtime interpreter,
+`Program` is the complete persistent result of lowering. Its size and integer type
+parameters default to `Nat` and `Int`. Compilation templates reuse this grammar with
+symbolic values, but generated definitions return the ordinary concrete `Program`. The runtime interpreter,
 canonical emitter, diagram extractor, equivalence relations, and generated boundary API
 all consume this value directly; no downstream pass needs the frontend AST or elaborator
 state.
@@ -28,7 +30,7 @@ elaboration state.
 ```lean
 namespace QASM.IR
 
-structure Program where
+structure Program (size : Type := Nat) (integer : Type := Int) where
   version     : Version := {}
   target      : TargetConfig := {}
   dialect     : Dialect := .v3_0
@@ -36,14 +38,14 @@ structure Program where
   annotations : Array Annotation := #[]
   pragmas     : Array Pragma := #[]
   includes    : Array IncludeInfo := #[]
-  inputs      : Array IODecl := #[]
-  outputs     : Array IODecl := #[]
-  constants   : Array ConstantDecl := #[]
-  types       : Array TypeDecl := #[]
-  externs     : Array ExternDecl := #[]
-  gates       : Array GateDecl := #[]
-  subroutines : Array SubroutineDecl := #[]
-  body        : Proc := .skip
+  inputs      : Array (IODecl size) := #[]
+  outputs     : Array (IODecl size) := #[]
+  constants   : Array (ConstantDecl size integer) := #[]
+  types       : Array (TypeDecl size) := #[]
+  externs     : Array (ExternDecl size) := #[]
+  gates       : Array (GateDecl size integer) := #[]
+  subroutines : Array (SubroutineDecl size integer) := #[]
+  body        : (Proc size integer) := .skip
   deriving Repr, BEq, Inhabited
 
 
