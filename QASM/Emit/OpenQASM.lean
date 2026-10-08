@@ -11,7 +11,7 @@ Emission performs a deterministic structural fold:
 ```mermaid
 flowchart LR
     Program["resolved IR.Program"] --> Names["collect stable display names"]
-    Names --> Render["render declarations and Proc"]
+    Names --> Render["render helpers and Proc"]
     Render --> Mode{"emission mode"}
     Mode -->|self-contained| Expanded["expanded canonical text"]
     Mode -->|preserve modules| Includes["include-preserving text"]
@@ -30,7 +30,7 @@ open QASM.IR
 ## Emission modes and resolved names
 
 Canonical IR uses numeric identities internally, but OpenQASM output must use display
-names consistently across declarations and nested bodies. `Context` collects every
+names consistently across helpers and nested bodies. `Context` collects every
 variable, declaration, and callable name before rendering, including locals hidden inside
 process scopes. Missing identities receive conspicuous synthetic names rather than
 silently colliding.
@@ -223,7 +223,7 @@ private def float (value : Float) : String :=
       s!"{sign}{mantissa * 5 ^ scale}e-{scale}"
 
 private def bitstring (bits : Array Bool) : String :=
-  "\"" ++ String.ofList (bits.toList.map fun bit => if bit then '1' else '0') ++ "\""
+  "\"" ++ String.ofList (bits.toList.reverse.map fun bit => if bit then '1' else '0') ++ "\""
 
 private partial def expr (context : Context) (value : Expr) : String :=
   match value.node with
@@ -297,7 +297,9 @@ private def gateCall (context : Context) (gate : CircuitRef)
 Categorical circuits carry wire order as data, while OpenQASM expresses order through
 operand lists. The renderer threads a lane array through composition, tensor, and
 permutation nodes. Inversion reverses sequential composition and inverts permutations;
-controls and powers become source modifiers around the rendered primitive. Unsupported
+controls become ordered source modifiers. Powers of compound circuits introduce a
+fresh helper gate, keeping the power around the entire unitary rather than distributing
+it over its sequential factors. Helpers capture the enclosing gate parameters. Unsupported
 circuits become explicit pragmas with their capability and diagnostic detail.
 
 ```lean
@@ -346,10 +348,8 @@ private partial def circuitLines (context : Context) (depth : Nat)
       let count := spec.controls.length
       let nextControls := lanes.extract 0 count
       let targetLanes := lanes.extract count lanes.size
-      let negative := spec.polarities.any (· == .negative)
-      let modifierText := if negative then
-        if count == 1 then "negctrl @ " else s!"negctrl({count}) @ "
-      else if count == 1 then "ctrl @ " else s!"ctrl({count}) @ "
+      let modifierText := String.join ((List.range count).map fun index =>
+        if spec.polarities[index]? == some .negative then "negctrl @ " else "ctrl @ ")
       let (lines, targetLanes) :=
         circuitLines context depth (prefixes.push modifierText) (controls ++ nextControls) targetLanes value
       (lines, nextControls ++ targetLanes)
@@ -385,13 +385,77 @@ end
 
 ## Gates and structured processes
 
-Gate declarations render their categorical body against the declared qubit names.
+Gate helpers render their categorical body against the declared qubit names.
 Processes retain their first-order structure: scopes become blocks, branches and loops
 become normalized OpenQASM control flow, and operations render through one local
 `opLine` correspondence. This is serialization of IR, not decompilation from the runtime
 interpreter.
 
 ```lean
+private structure HelperState where
+  helpers : Array GateDecl := #[]
+  usedNames : Array String
+  nextDeclId : Nat
+  nextVar : Nat
+
+private partial def singleOperation : Circuit → Bool
+  | .primitive _ => true
+  | .inverse value | .power _ value | .controlled _ value => singleOperation value
+  | _ => false
+
+private partial def groupPowers (parent : GateDecl) (value : Circuit) : StateM HelperState Circuit := do
+  match value with
+  | .compose first second => return .compose (← groupPowers parent first) (← groupPowers parent second)
+  | .tensor first second => return .tensor (← groupPowers parent first) (← groupPowers parent second)
+  | .inverse value => return .inverse (← groupPowers parent value)
+  | .controlled spec value => return .controlled spec (← groupPowers parent value)
+  | .power exponent value =>
+      let value ← groupPowers parent value
+      if singleOperation value then return .power exponent value
+      let state ← get
+      let mut suffix := state.nextDeclId
+      while state.usedNames.contains s!"__qasm_power_{suffix}" do suffix := suffix + 1
+      let name := s!"__qasm_power_{suffix}"
+      let id : DeclId := ⟨state.nextDeclId⟩
+      let mut qubits : Array Var := #[]
+      let mut usedNames := state.usedNames.push name
+      for index in [:value.dom.length] do
+        let mut wireSuffix := state.nextVar + index
+        while usedNames.contains s!"__qasm_wire_{wireSuffix}" do wireSuffix := wireSuffix + 1
+        let wireName := s!"__qasm_wire_{wireSuffix}"
+        usedNames := usedNames.push wireName
+        qubits := qubits.push { id := ⟨state.nextVar + index⟩, name := wireName, type := .scalar (.qubit 1) }
+      let helperGate : GateDecl := { id, name, parameters := parent.parameters, qubits, body := value }
+      set { state with
+        helpers := state.helpers.push helperGate
+        usedNames := usedNames
+        nextDeclId := state.nextDeclId + 1
+        nextVar := state.nextVar + qubits.size }
+      let parameters := parent.parameters.map fun parameter =>
+        ({ type := parameter.type, node := .var parameter.id } : Expr)
+      return .power exponent (.primitive {
+        kind := .userDefined id
+        name
+        parameters
+        input := value.dom
+        output := value.cod })
+  | value => pure value
+
+private def withGroupedPowers (program : Program) : Program := Id.run do
+  let context := buildContext program
+  let usedNames := context.vars.toArray.map (·.2) ++ context.decls.toArray.map (·.2) ++
+    context.callables.toArray.map (·.2)
+  let nextDeclId := context.decls.toArray.foldl (fun n entry => max n (entry.1.value + 1)) 0
+  let nextVar := context.vars.toArray.foldl (fun n entry => max n (entry.1.value + 1)) 0
+  let mut state : HelperState := { usedNames, nextDeclId, nextVar }
+  let mut gates := #[]
+  for gate in program.gates do
+    let (body, next) := (groupPowers gate gate.body).run state
+    -- Dependencies are emitted immediately before the gate that uses them.
+    gates := gates ++ next.helpers ++ #[{ gate with body }]
+    state := { next with helpers := #[] }
+  return { program with gates }
+
 private def gateDeclaration (context : Context) (declaration : GateDecl) : Array String :=
   let parameters := if declaration.parameters.isEmpty then "" else
     "(" ++ String.intercalate ", " (declaration.parameters.toList.map (·.name)) ++ ")"
@@ -468,9 +532,9 @@ where
 
 ```
 
-## Compilation-unit declarations
+## Compilation-unit helpers
 
-I/O, constants, externs, gates, and subroutines render from their resolved declarations.
+I/O, constants, externs, gates, and subroutines render from their resolved helpers.
 Sections remain separate arrays until final assembly, which makes ordering explicit and
 allows empty categories to disappear without creating unstable blank lines.
 
@@ -529,7 +593,7 @@ private def includeLines (mode : EmitMode) (program : Program) : Array String :=
 ## Public deterministic emitter
 
 `emitWithMode` assembles the compilation unit in canonical dependency order: header,
-includes, directives, boundary declarations, constants and types, externs, gates,
+includes, directives, boundary helpers, constants and types, externs, gates,
 subroutines, then the executable body. Exactly one blank line separates nonempty sections
 and one newline terminates the result, making textual output stable for inspection and
 round-trip tests.
@@ -537,6 +601,7 @@ round-trip tests.
 ```lean
 /-- Emits deterministic canonical OpenQASM. Standard gates use one normalized module include. -/
 def emitWithMode (mode : EmitMode) (program : Program) : String :=
+  let program := withGroupedPowers program
   let context := buildContext program
   let header := #[s!"OPENQASM {program.version.major}.{program.version.minor};"]
   let includes := includeLines mode program

@@ -150,7 +150,7 @@ private def lowerExpression (source : QASM.Frontend.Expression) :
 private def resolveSourceType (type : QASM.Frontend.TypeSpec) :
     LowerM QASM.Frontend.ResolvedType := do
   let context ← get
-  match QASM.Frontend.resolveType context.options.target context.analysis.constants type with
+  match QASM.Frontend.resolveType context.options.target (constantEnvironment context) type with
   | .ok type => pure type
   | .error error => throw error
 
@@ -268,7 +268,7 @@ partial def statement (source : QASM.Frontend.Statement) : LowerM (QASM.IR.Proc 
   let context ← get
   let origin := sourceOrigin context.options
   match source with
-  | .includeFile _ | .constDeclaration .. |
+  | .includeFile _ |
       .defStatement .. | .externStatement .. | .gateDefinition .. |
       .pragma _ => pure .skip
   | .qubit name size | .qreg name size =>
@@ -280,6 +280,17 @@ partial def statement (source : QASM.Frontend.Statement) : LowerM (QASM.IR.Proc 
       let type ← resolveSourceType (.scalar "bit" size)
       let binding ← freshBinding name type true
       pure (.operation (.declare binding.var none))
+  | .constDeclaration type name initializer =>
+      let type ← resolveSourceType type
+      let constant := (QASM.Frontend.evalDesignator (constantEnvironment context) initializer).toOption.map
+        (QASM.Frontend.normalizeConstant type)
+      let (prelude, value) ← lowerExpression initializer
+      let binding ← freshBinding name type false
+      modify fun context => { context with scopes := context.scopes.mapIdx fun index scope =>
+        if index == 0 then (scope.map (fun entry =>
+          if entry.var.id == binding.var.id then { entry with constantValue := constant } else entry))
+        else scope }
+      pure (prepend prelude (.operation (.declare binding.var (some value))))
   | .classicalDeclaration type name initializer =>
       let type ← resolveSourceType type
       let binding ← freshBinding name type true
@@ -371,7 +382,14 @@ partial def statement (source : QASM.Frontend.Statement) : LowerM (QASM.IR.Proc 
       pure (prepend prelude (.operation (.barrier lowered)))
   | .boxStatement _ _ => pure (.operation (.unsupported .timing source.toQasm))
   | .delayStatement _ _ => pure (.operation (.unsupported .timing source.toQasm))
-  | .nopStatement _ => pure (.operation (.unsupported .calibration source.toQasm))
+  | .nopStatement operands =>
+      -- Evaluate selectors for their classical effects; nop has no backend effect.
+      let selectors := operands.flatMap fun operand => match operand with
+        | .identifier _ groups => groups.flatten
+        | .hardware _ => #[]
+      let (prelude, values) ← hoistExpressions selectors
+      let values ← values.mapM expression
+      pure (prepend prelude (sequence (values.map fun value => .operation (.eval value))))
   | .annotated _ nested => statement nested
   | .calibrationGrammar _ | .calStatement _ | .defcalStatement _ _ =>
       pure (.operation (.unsupported .calibration source.toQasm))

@@ -127,7 +127,9 @@ private def namedConstant? (target : QASM.TargetConfig) : String → Option (QAS
 Every emitted expression carries its resolved type and source origin. Identifiers become
 stable variable or declaration IDs, calls distinguish subroutines, externs, and builtins,
 and casts retain only their already-resolved target type. Measurement is deliberately
-excluded: the process pass hoists that effect before invoking this pure translation.
+excluded: the process pass hoists that effect before invoking this structural translation.
+Subroutine calls can still execute effects through the shared interpreter; their resolved
+signature determines whether each expression argument is classical, quantum, or a reference.
 
 ```lean
 partial def expression (source : QASM.Frontend.Expression) : LowerM (QASM.IR.Expr Size Integer) := do
@@ -144,7 +146,7 @@ partial def expression (source : QASM.Frontend.Expression) : LowerM (QASM.IR.Exp
     | .literal (.boolean value) => pure (.boolLit value)
     | .literal (.bitstring raw) =>
         pure (.bitstringLit (raw.toList.filterMap (fun char =>
-          if char == '0' then some false else if char == '1' then some true else none) |>.toArray))
+          if char == '0' then some false else if char == '1' then some true else none) |>.reverse.toArray))
     | .literal (.timing raw) =>
         if raw.endsWith "dt" then pure (.unsupported .timing s!"timing literal {raw}")
         else pure (.durationLit (← durationSeconds raw))

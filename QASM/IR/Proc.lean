@@ -8,8 +8,10 @@
 # First-order process IR
 
 Processes represent effects and structured control flow without higher-order syntax.
-Expressions remain pure; measurement, mutation, allocation, calls, and backend interaction
-occur only through `Op`, while `Proc` determines sequencing and non-local control.
+Measurement, mutation, allocation, and backend interaction are explicit `Op` nodes.
+Expressions can call effectful subroutines when a return value is required; those calls
+share operand binding and writeback semantics with statement calls. `Proc` determines
+sequencing and structured control.
 
 The effect boundary is visible in the tree shape:
 
@@ -19,11 +21,11 @@ flowchart TD
     Proc --> Op
     Op --> Classical["mutation and calls"]
     Op --> Quantum["allocation and backend effects"]
-    Expr["pure Expr"] --> Op
+    Expr["typed Expr / value calls"] --> Op
     Expr --> Control
 ```
 
-Only `Op` changes state; `Proc` controls when those effects occur.
+`Op` and expression calls can change state; `Proc` controls when those effects occur.
 
 ```lean
 namespace QASM.IR
@@ -34,8 +36,8 @@ namespace QASM.IR
 
 Quantum and classical operands are distinct variants, and mutable array arguments carry
 their writeback contract explicitly. `CircuitRef` resolves a gate target while retaining
-parameters and modifiers. Atomic operations are the only process nodes allowed to change
-interpreter state or cross `QuantumBackend`.
+parameters and modifiers. Atomic operations express direct effects; a subroutine invoked
+from an expression can also execute them through its process body.
 
 ```lean
 inductive QuantumOperand (size : Type := Nat) (integer : Type := Int)
@@ -101,7 +103,8 @@ inductive Op (size : Type := Nat) (integer : Type := Int)
 
 Iteration domains distinguish ranges, explicit sets, and array values after expression
 typing. `Proc.scope` names every local binding that must be restored on exit, and explicit
-flow nodes model `break`, `continue`, `return`, and `end` without exceptions or closures.
+flow nodes represent `break`, `continue`, `return`, and whole-program `end` directly.
+The interpreter propagates `end` through expression calls using an internal signal.
 
 ```lean
 inductive IterationDomain (size : Type := Nat) (integer : Type := Int)

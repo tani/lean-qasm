@@ -178,7 +178,7 @@ private partial def controlFlowDiagnostics
     Array Diagnostic := Id.run do
   let mut diagnostics := #[]
   for statement in statements do
-    match statement with
+    match statement.unannotated with
     | .breakStatement =>
         if loopDepth == 0 then
           diagnostics := diagnostics.push ⟨"'break' is only valid inside a loop"⟩
@@ -366,7 +366,7 @@ private partial def collectCapabilities (statements : Array Statement)
   let mut capabilities := initial
   for statement in statements do
     capabilities := directStatementCapabilities capabilities statement
-    match statement with
+    match statement.unannotated with
     | .externStatement .. =>
         capabilities := pushCapability capabilities .externalFunction
     | .calibrationGrammar .. | .calStatement .. | .defcalStatement .. =>
@@ -431,7 +431,7 @@ def check (program : Program) : Except (Array Diagnostic) CheckedProgram := do
   let mut environment : ValueEnvironment := []
   let mut diagnostics : Array Diagnostic := #[]
   for statement in program.statements do
-    match statement with
+    match statement.unannotated with
     | .constDeclaration _ name expression =>
         if environment.any (fun entry => entry.1 == name) then
           diagnostics := diagnostics.push ⟨s!"duplicate constant '{name}'"⟩

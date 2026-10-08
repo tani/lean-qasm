@@ -1,6 +1,7 @@
     import LiterateLean
     import QASM
     import Tests.Parametric
+    import Tests.Regression
     open scoped LiterateLean
 
 # End-to-end LeanQASM tests
@@ -820,6 +821,7 @@ namespace QASMTests
 open QASM
 def run : IO Unit := do
   Parametric.run
+  Regression.run
   testNativeControl
   testInput
   testQuantumBackend

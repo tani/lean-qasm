@@ -142,7 +142,13 @@ partial def evalConstInt (environment : ConstantEnvironment) :
       | "&&" => pure (if left != 0 && right != 0 then 1 else 0)
       | "||" => pure (if left != 0 || right != 0 then 1 else 0)
       | _ => throw (diagnostic s!"operator '{operator}' is not constant-evaluable")
-  | .cast _ _ value => evalConstInt environment value
+  | .cast name width value => do
+      unless ["int", "uint", "bit", "bool"].contains name do
+        throw (diagnostic s!"'{name}' casts are not integer constant expressions")
+      let width ← match width with
+        | some expression => (·.toNat) <$> evalConstInt environment expression
+        | none => pure (if name == "bit" || name == "bool" then 1 else 64)
+      pure (QASM.Value.cast name width (.integer (← evalConstInt environment value))).asInt
   | expression =>
       throw (diagnostic s!"expression is not an integer constant: {expression.toQasm}")
 
@@ -345,6 +351,19 @@ private def standardGates : Array GateSignature := #[
 
 private def builtinGates : Array GateSignature := #[⟨"U", 3, 1⟩, ⟨"gphase", 1, 0⟩]
 
+/-- Normalize closed integer constants at their declared width before using them as sizes. -/
+def normalizeConstant (type : ResolvedType) (value : Integer) : Integer :=
+  match value.closed?, type with
+  | some integer, .scalar scalar =>
+      let cast : Option QASM.Value := match scalar with
+        | .sint width => width.value.closed?.map fun (width : Int) => QASM.Value.cast "int" width.toNat (.integer integer)
+        | .uint width => width.value.closed?.map fun (width : Int) => QASM.Value.cast "uint" width.toNat (.integer integer)
+        | .bit width => (width.getD 1).value.closed?.map fun (width : Int) => QASM.Value.cast "bit" width.toNat (.integer integer)
+        | .boolean => some (QASM.Value.cast "bool" 1 (.integer integer))
+        | _ => none
+      cast.map (fun value => Integer.literal value.asInt) |>.getD value
+  | _, _ => value
+
 private structure Binding where
   name : String
   type : ResolvedType
@@ -523,7 +542,9 @@ private partial def inferExpression (context : CheckContext) (scopes : Scopes) :
   | .hardwareQubit _ => pure (.scalar (.qubit 1))
   | .unary operator operand => do
       let operand ← inferExpression context scopes operand
-      if operator == "!" then pure (.scalar .boolean)
+      if operator == "!" then
+        if isConditionType operand then pure (.scalar .boolean)
+        else throw (diagnostic "logical negation requires a condition operand")
       else match scalarOf operand with
         | some scalar =>
             unless isNumeric scalar do
@@ -533,8 +554,29 @@ private partial def inferExpression (context : CheckContext) (scopes : Scopes) :
   | .binary operator left right => do
       let left ← inferExpression context scopes left
       let right ← inferExpression context scopes right
-      if ["==", "!=", "<", "<=", ">", ">=", "&&", "||"].contains operator then
+      if ["&&", "||"].contains operator then
+        unless isConditionType left && isConditionType right do
+          throw (diagnostic s!"operator '{operator}' requires condition operands")
         pure (.scalar .boolean)
+      else if ["==", "!=", "<", "<=", ">", ">="].contains operator then
+        match scalarOf left, scalarOf right with
+        | some left, some right =>
+            let equality := operator == "==" || operator == "!="
+            let numeric := isNumeric left && isNumeric right
+            let booleans := left == .boolean && right == .boolean
+            unless numeric || (equality && booleans) do
+              throw (diagnostic s!"operator '{operator}' requires comparable classical scalars")
+            unless equality do
+              match left, right with
+              | .complex _, _ | _, .complex _ =>
+                  throw (diagnostic "complex values have no ordering")
+              | _, _ => pure ()
+            match left, right with
+            | .duration, .duration => pure ()
+            | .duration, _ | _, .duration => throw (diagnostic "durations must be compared with durations")
+            | _, _ => pure ()
+            pure (.scalar .boolean)
+        | _, _ => throw (diagnostic "comparisons cannot be applied to arrays")
       else if operator == "++" then
         match left, right with
         | .scalar (.bit (some leftWidth)), .scalar (.bit (some rightWidth)) =>
@@ -700,7 +742,8 @@ def TypeAnalysis.inferExpressionType
 
 Statement checking threads lexical scopes through native OpenQASM control flow. Each
 nested block receives an explicit scope stack, so declarations, mutability, and shadowing
-are checked without a global symbol table.
+are checked without a global symbol table. Closed local integer constants also extend the
+block's designator environment after normalization at their declared width.
 
 The same pass enforces writable assignment roots, loop-only control statements,
 gate-body restrictions, subroutine return types, callable and gate arities, quantum versus
@@ -723,7 +766,9 @@ private def allowedInGate : Statement → Bool
 private partial def checkStatements (context : CheckContext) (initial : Scopes)
     (statements : Array Statement) : Except Diagnostic Scopes := do
   let mut scopes := initial
-  for statement in statements do
+  let mut context := context
+  for original in statements do
+    let statement := original.unannotated
     if context.inGate && !allowedInGate statement then
       throw (diagnostic "gate bodies may contain only gate calls, aliases, and loop control")
     let boundName := match statement with
@@ -762,7 +807,10 @@ private partial def checkStatements (context : CheckContext) (initial : Scopes)
         let actual ← inferExpression context scopes value
         unless compatible type actual do
           throw (diagnostic s!"constant '{name}' has type {repr actual}; expected {repr type}")
+        let constant := (evalDesignator context.constants value).toOption.map (normalizeConstant type)
         scopes ← addBinding scopes ⟨name, type, false⟩
+        let constants := context.constants.filter (·.1 != name)
+        context := { context with constants := constant.map (fun value => (name, value) :: constants) |>.getD constants }
     | .ioDeclaration input type name =>
         unless context.topLevel do throw (diagnostic "input/output declarations are only valid globally")
         let type ← resolveType context.target context.constants type
@@ -909,7 +957,7 @@ private def collectConstants (target : TargetConfig) (program : Program)
     Except Diagnostic ConstantEnvironment := do
   let mut constants : ConstantEnvironment := parameters.toList.map (fun name => (name, .parameter name))
   for statement in program.statements do
-    match statement with
+    match statement.unannotated with
     | .constDeclaration type name value =>
         if constants.any (fun entry => entry.1 == name) then
           throw (diagnostic s!"duplicate constant '{name}'")
@@ -918,7 +966,7 @@ private def collectConstants (target : TargetConfig) (program : Program)
         | .scalar (.sint _) | .scalar (.uint _) | .scalar (.bit _) |
             .scalar (.angle _) | .scalar .boolean =>
             let value ← evalDesignator constants value
-            constants := (name, value) :: constants
+            constants := (name, normalizeConstant resolved value) :: constants
         | _ => pure ()
     | _ => pure ()
   pure constants
@@ -928,7 +976,7 @@ private def collectSignatures (target : TargetConfig) (constants : ConstantEnvir
   let mut callables := #[]
   let mut gates := builtinGates
   for statement in program.statements do
-    match statement with
+    match statement.unannotated with
     | .includeFile "stdgates.inc" =>
         for signature in standardGates do
           if !gates.any (fun existing => existing.name == signature.name) then
@@ -986,11 +1034,11 @@ def analyzeTypes (target : TargetConfig) (program : Program) (familyParameters :
       parameterScope := scopes.head!
     let global ← checkStatements context [parameterScope] program.statements
     for statement in program.statements do
-      match statement with
+      match statement.unannotated with
       | .defStatement name arguments _returnType body =>
           let signature := callables.find? (fun candidate => candidate.name == name) |>.get!
           let constantScope := global.head!.filter fun binding =>
-            familyParameters.contains binding.name || program.statements.any fun statement => match statement with
+            familyParameters.contains binding.name || program.statements.any fun statement => match statement.unannotated with
               | .constDeclaration _ constantName _ => constantName == binding.name
               | _ => false
           let mut localScopes : Scopes := [[], constantScope]
@@ -1004,7 +1052,7 @@ def analyzeTypes (target : TargetConfig) (program : Program) (familyParameters :
           let _ ← checkStatements bodyContext localScopes body
       | .gateDefinition _name parameters qubits body =>
           let constantScope := global.head!.filter fun binding =>
-            familyParameters.contains binding.name || program.statements.any fun statement => match statement with
+            familyParameters.contains binding.name || program.statements.any fun statement => match statement.unannotated with
               | .constDeclaration _ constantName _ => constantName == binding.name
               | _ => false
           let mut localScopes : Scopes := [[], constantScope]
@@ -1023,7 +1071,7 @@ def analyzeTypes (target : TargetConfig) (program : Program) (familyParameters :
     let mut inputs := #[]
     let mut outputs := #[]
     for statement in program.statements do
-      match statement with
+      match statement.unannotated with
       | .ioDeclaration input type name =>
           let field := IOField.mk name (← resolveType target constants type)
           if input then inputs := inputs.push field else outputs := outputs.push field

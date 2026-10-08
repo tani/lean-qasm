@@ -14,8 +14,8 @@ lean_lib QASM where
   roots := #[`QASM]
 
 lean_lib QASMTestSupport where
-  roots := #[`Tests.Parametric]
-  globs := #[.one `Tests.Parametric]
+  roots := #[`Tests.Parametric, `Tests.Regression]
+  globs := #[.one `Tests.Parametric, .one `Tests.Regression]
 
 @[test_driver]
 lean_exe lean_qasm_tests where

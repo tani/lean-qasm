@@ -138,21 +138,31 @@ private def verifyInvalid : Except String Nat := do
 
 The final evaluation locks the current boundary classification and invalid-fixture count.
 This keeps known frontend gaps visible without allowing them to grow or migrate silently;
-intentional support changes must update the explicit baseline.
+intentional support changes must update the explicit baseline. Annotation directives now
+parse without consuming the following line, so the annotation corpus moves from parse
+rejection to type rejection for its duplicate declarations. The final check uses an IO
+error so a mismatch fails Lean elaboration rather than returning a default after a panic.
 
 ```lean
 private def expectedValid : ValidSummary := {
   lowered := 3
-  nonportable := 15
-  parseRejected := 6
+  nonportable := 16
+  parseRejected := 5
 }
 
-#eval match verifyInvalid with
-  | .ok invalid =>
-      let actual := classifyValid
-      if actual == expectedValid && invalid == invalidSources.size then (actual, invalid)
-      else panic! s!"regression classification changed: valid={repr actual}, invalid={invalid}"
-  | .error message => panic! message
+#guard (match validSources.find? (·.1.endsWith "/annotations.yaml") with
+  | some (_, source) => (QASM.parse source matches .ok _)
+  | none => false)
+
+#eval (show IO Unit from do
+  let invalid ← match verifyInvalid with
+    | .ok count => pure count
+    | .error message => throw (IO.userError message)
+  let actual := classifyValid
+  unless actual == expectedValid && invalid == invalidSources.size do
+    throw (IO.userError s!"regression classification changed: valid={repr actual}, invalid={invalid}")
+  IO.println s!"{repr actual}, invalid={invalid}")
+
 ```
 
 <!--

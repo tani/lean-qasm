@@ -51,6 +51,7 @@ structure Binding where
   writable      : Bool
   quantum       : Bool
   wirePositions : Option (Array Nat) := none
+  constantValue : Option Integer := none
   deriving Inhabited
 
 structure ConstantEntry where
@@ -255,8 +256,16 @@ def lookupBinding? (context : Context) (name : String) : Option Binding :=
 
 def lookupConstant? (context : Context) (name : String) : Option ConstantEntry :=
   context.tables.constants.find? (·.name == name)
+def constantEnvironment (context : Context) : QASM.Frontend.ConstantEnvironment :=
+  let bindings := context.scopes.flatten
+  bindings.filterMap (fun binding => binding.constantValue.map (binding.var.name, ·)) ++
+    context.localConstants.filter (fun entry => !bindings.any (·.var.name == entry.1)) ++
+    context.analysis.constants.filter (fun entry => !bindings.any (·.var.name == entry.1))
+
 def lookupLocalConstant? (context : Context) (name : String) : Option Int :=
-  (context.localConstants.find? (·.1 == name)).bind (·.2.closed?)
+  match lookupBinding? context name with
+  | some _ => none
+  | none => (context.localConstants.find? (·.1 == name)).bind (·.2.closed?)
 
 
 def lookupExtern? (context : Context) (name : String) : Option ExternEntry :=
@@ -278,13 +287,14 @@ def typeBindings (context : Context) : List (String × QASM.Frontend.ResolvedTyp
 
 def inferType (expression : QASM.Frontend.Expression) : LowerM QASM.Frontend.ResolvedType := do
   let context ← get
-  match context.analysis.inferExpressionType context.options.target (typeBindings context) expression with
+  let analysis := { context.analysis with constants := constantEnvironment context }
+  match analysis.inferExpressionType context.options.target (typeBindings context) expression with
   | .ok type => pure type
   | .error error => throw error
 def evalConstInt (expression : QASM.Frontend.Expression) : LowerM Int := do
   let context ← get
   match QASM.Frontend.evalConstInt
-      (context.localConstants ++ context.analysis.constants) expression with
+      (constantEnvironment context) expression with
   | .ok value => pure value
   | .error error => throw error
 
@@ -294,7 +304,8 @@ def evalConstInt (expression : QASM.Frontend.Expression) : LowerM Int := do
 ## Binding and scope lifecycle
 
 Fresh bindings update only the current lexical frame and record whether later assignments
-are legal. Scope operations are explicit because gate and subroutine lowering temporarily
+are legal. Local constants carry their compile-time integer value in that frame, so widths
+can use them without leaking across scope exits. Scope operations are explicit because gate and subroutine lowering temporarily
 replace the caller's scope stack, then restore it after collecting local declarations.
 
 ```lean

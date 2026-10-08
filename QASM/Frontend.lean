@@ -472,6 +472,11 @@ structure Program where
   statements : Array Statement
   deriving Repr, Inhabited, BEq
 
+/-- The declaration and control-flow identity of an annotated statement. -/
+def Statement.unannotated : Statement → Statement
+  | .annotated _ statement => statement.unannotated
+  | statement => statement
+
 ```
 
 ## Token grammar parser
@@ -1186,8 +1191,12 @@ where
     expect "@"
     let first ← parseIdentifier
     let rec parseSuffix (keyword : String) : GrammarParser String := do
-      if ← accept "." then parseSuffix (keyword ++ "." ++ (← parseIdentifier))
-      else pure keyword
+      let cursor ← get
+      match cursor.tokens[cursor.index]? with
+      | some ⟨.symbol ".", _⟩ =>
+          let _ ← consume
+          parseSuffix (keyword ++ "." ++ (← parseIdentifier))
+      | _ => pure keyword
     let keyword ← parseSuffix first
     let content := (← collectLineText).trimAscii.copy
     let annotation : Annotation := ⟨keyword, if content.isEmpty then none else some content⟩

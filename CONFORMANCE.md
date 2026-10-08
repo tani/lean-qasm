@@ -72,11 +72,11 @@ semantic validator for every valid or invalid OpenQASM 3.0 program:
 - Type diagnostics do not yet carry AST source spans. Lexer/parser errors have
   line and column information, while later diagnostics identify the construct
   textually.
-- Runtime-dependent invalid indexing is currently represented by an empty or
-  unchanged selection, and runtime division/remainder by zero produces an
-  invalid internal value that is reported when it reaches a typed output.
-  Compile-time dimensions, shapes, fixed widths, and constant zero range steps
-  are rejected statically.
+- Runtime-dependent invalid classical indexing is currently represented by an
+  empty or unchanged selection. Invalid quantum selectors report a bounds error.
+  Runtime division/remainder by zero reports `RunError.divisionByZero` at the
+  operation, using the divisor's numeric representation. Compile-time dimensions,
+  shapes, fixed widths, and constant zero range steps are rejected statically.
 - The portable floating implementation is limited to IEEE-like 32- and 64-bit
   values. Vendor-specific float widths and exact vendor choices for overflow,
   angle narrowing, and floating exceptional values are not modeled.

@@ -421,8 +421,11 @@ def asFloat : Value → Float
   | .duration seconds => seconds
   | .angle width rawBits =>
       if width == 0 then 0.0
-      else (UInt64.ofNat rawBits).toFloat * 6.283185307179586 /
-        (UInt64.ofNat ((2 : Nat) ^ width)).toFloat
+      else
+        -- Accumulate a binary fraction without constructing a machine-sized scale.
+        let fraction := (List.range width).foldl (fun fraction index =>
+          (fraction + (if rawBits / (2 ^ index) % 2 == 1 then 1.0 else 0.0)) / 2.0) 0.0
+        fraction * 6.283185307179586
   | .integer value =>
       if value < 0 then -(UInt64.ofNat value.natAbs).toFloat
       else (UInt64.ofNat value.natAbs).toFloat
@@ -452,12 +455,30 @@ private def integerBits (width : Nat) (value : Int) : Array Bool :=
     (value.natAbs / (2 ^ index.val)) % 2 == 1
 
 private def angleBits (width : Nat) (value : Value) : Nat :=
-  if width == 0 then 0
-  else
-    let turns := value.asFloat / 6.283185307179586
-    let wrapped := turns - turns.floor
-    let scale := (UInt64.ofNat ((2 : Nat) ^ width)).toFloat
-    (wrapped * scale).round.toUInt64.toNat % ((2 : Nat) ^ width)
+  match value with
+  | .angle oldWidth rawBits =>
+      if width ≥ oldWidth then (rawBits * 2 ^ (width - oldWidth)) % 2 ^ width
+      else rawBits / 2 ^ (oldWidth - width) % 2 ^ width
+  | _ => Id.run do
+      if width == 0 then return 0
+      let turns := value.asFloat / 6.283185307179586
+      let mut fraction := turns - turns.floor
+      let mut bits := 0
+      for _ in [:width] do
+        fraction := fraction * 2.0
+        let bit := fraction ≥ 1.0
+        bits := bits * 2 + if bit then 1 else 0
+        if bit then fraction := fraction - 1.0
+      return (bits + if fraction ≥ 0.5 then 1 else 0) % 2 ^ width
+
+/-- Zero is tested in the value's own numeric representation, including both complex parts. -/
+def isZero : Value → Bool
+  | .float value => value == 0.0
+  | .float32 value => value == 0.0
+  | .complex real imaginary => real == 0.0 && imaginary == 0.0
+  | .complex32 real imaginary => real == 0.0 && imaginary == 0.0
+  | .duration seconds => seconds == 0.0
+  | value => value.asInt == 0
 
 ```
 
