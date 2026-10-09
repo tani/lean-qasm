@@ -91,13 +91,22 @@ The proof modules establish the following kernel-checked results:
 | `qftSteps_valid`, `qftCore_succ` | All generated gate indices are valid; the outer-loop successor equation holds for every size |
 | `runQFT_iff` | Valid reference gate-sequence execution equals `qftMatrix n` on an arbitrary initial operator, for every size |
 | `qftCorrect_zero`, `qftCorrect_one` | Exact Fourier equality for sizes zero and one |
+| `binary_expansion`, `reverseBits_involution`, `bitReversal` | Binary reconstruction and a verified reversal permutation for every register width |
+| `qft_target_block`, `qft_top_hadamard` | Actual controlled-phase matrix fold reduces to a diagonal block; highest-target H agrees with identity tensor H for every width |
+| `qft_target_phase`, `qftPathAmplitude_reversed_eq_fourier` | The native gate-path weight equals each Fourier component for every size, including normalization and reversal |
+| `proc_simulation`, `proc_lifting` | All structured Proc constructors preserve and lift finite executions from atomic kernel laws |
+| `trace_proc_refinement_iff` | Bidirectional equivalence between gate-trace and matrix-accumulating Proc semantics, for any event kernel; its atomic laws are discharged |
 | `circuitEval_boundaries`, `routing_compose` | Interpretation derivations preserve declared qubit boundaries; adjacent verified routing maps cancel |
 | `totalCorrect_transfer` | Total correctness transfers when both successful behavior and faults refine the specification |
 
 `QFTCorrect` and `QFTProgramCorrect` remain **unproved obligations**. The general
-Fourier equality, residual Proc-loop simulation, concrete classical evaluation and
+gate-product equality still needs the sparse-matrix proof connecting `qftMatrix` to
+`qftPathAmplitude`, and the physical swap list to `bitReversal`. The path-weight theorem
+is not a theorem about `qftMatrix`. Residual QFT Proc-loop simulation, concrete classical evaluation and
 call/frame restoration, and a full refinement theorem for the partial interpreter are
-not yet established. `runQFT_iff` concerns the reference gate-sequence semantics, not
+not yet established. `trace_proc_refinement_iff` covers all finite control-flow
+constructors, but does not instantiate its event kernel with `Execution.run` or prove
+fault freedom. `runQFT_iff` concerns the reference gate-sequence semantics, not
 `Execution.run`; `totalCorrect_transfer` does not supply its own refinement premises.
 The bit-angle proof does not identify the runtime's final Float conversion with an exact
 real angle. Backend approximation, tensor/control unitarity and arbitrary-placement
