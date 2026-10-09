@@ -9,7 +9,8 @@ The imported IR family retains descending outer and inner Proc loops. The mathem
 gate list below enumerates their iterations as a specification for every size; it is
 not an execution-time rewrite of the IR. Qubit zero is least
 significant; controlled phases precede the final physical swaps. The empty register
-has no gate or allocation. Correctness below is a proposition, not an asserted theorem.
+has no gate or allocation. The matrix contract below is proved in QFTSwapLaws; the
+stronger residual-program contract remains a separate specification.
 
 Fixed-width execution must satisfy both angle precision and signed-index range bounds.
 This contract does not assert that a floating-point backend meets those conditions.
@@ -63,7 +64,7 @@ def stepOperator (n : Nat) : QFTStep → Operator n
 def qftMatrix (n : Nat) : Operator n :=
   (qftSteps n).foldl (fun acc step => sequential acc (stepOperator n step)) 1
 
-/-- This is the target theorem, not an axiom or a completed proof. -/
+/-- The every-size matrix contract, proved by `qftCorrect_all` in QFTSwapLaws. -/
 def QFTCorrect : Prop := ∀ n, qftMatrix n = fourier n
 
 /-- Linking residual Proc loops to this matrix is a separate refinement obligation. -/
