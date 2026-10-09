@@ -3,6 +3,7 @@
     import QASMVerification.ExactReal
     import QASMVerification.AngleRefinement
     import QASMVerification.RuntimeLaws
+    import QASMVerification.QFTProgramLaws
     import QASMVerification.QFTSwapLaws
     import QASMVerification.QFTSparseLaws
     import QASMVerification.QFTMatrixLaws
@@ -25,8 +26,10 @@ has no dependency on these modules. The original QFT gate product equals the nor
 positive-sign Fourier matrix for every register size, including physical swaps. All Proc
 constructors have bidirectional finite-execution refinement through the shared control
 machine. The actual Option interpreter and its public boundary instantiate that theorem.
-Atomic callback graphs preserve finite classical execution; backend matrix accuracy,
-external-effect models and the residual QFT program contract remain separate obligations.
+The residual QFT body additionally has every-size total correctness in the exact
+bit-angle/ideal-matrix model: finite normal execution, restored locals, unique Fourier
+action and no faults. Atomic callback graphs preserve finite classical execution;
+Float backend accuracy and external-effect models remain separate obligations.
 No added axioms or placeholder proofs supply those connections.
 
 ```lean

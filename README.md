@@ -91,6 +91,8 @@ The proof modules establish the following kernel-checked results:
 | `qftSteps_valid`, `qftCore_succ` | All generated gate indices are valid; the outer-loop successor equation holds for every size |
 | `runQFT_iff` | Valid reference gate-sequence execution equals `qftMatrix n` on an arbitrary initial operator, for every size |
 | `qftCorrect`, `qftCorrect_all` | Original `qftMatrix n = fourier n` for every natural size, including physical SWAPs, normalization and positive Fourier sign |
+| `qftProgramCorrect_all` | Original residual `IR.QFT.body` terminates normally, has unique Fourier action and no faults in the exact shared-machine execution model, for every size |
+| `QFTExecution.inner_iterations`, `body_totalCorrect`, `body_action` | Actual finite-width halving invariant, complete loop execution with all locals restored, and Fourier action on an arbitrary initial operator trace |
 | `qftCore_matrix`, `swapRange_matrix` | Actual gate multiplication equals native path amplitudes; actual physical SWAP multiplication reverses basis rows |
 | `binary_expansion`, `reverseBits_involution`, `bitReversal` | Binary reconstruction and a verified reversal permutation for every register width |
 | `hadamard_row_action` | Actual Hadamard matrix multiplication reduces to exactly two predecessor basis states for every valid target and arbitrary accumulator |
@@ -120,13 +122,23 @@ transformers require a nonempty state). Atomic expression/call correctness again
 independent classical specification and exact/approximate quantum backend laws remain
 separate from the proved structured-control refinement.
 
-`QFTProgramCorrect` is a separate, stronger contract for `IR.QFT.body`: its residual
-classical loops must be shown to generate the reference gate list, with termination and
-fault freedom. That theorem is not supplied by the general control refinement. The
-bit-angle proof also does not identify the runtime's final Float conversion with an
-exact real angle. Backend approximation, tensor/control unitarity and arbitrary-placement
-refinement, instrument positivity/trace laws, and external-effect/divergence-sensitive
-semantics remain separate obligations. No admitted proofs or new axioms supply these claims.
+`QFTProgramCorrect` is proved by `qftProgramCorrect_all` for the exact execution
+model in `QFTExecution`. The original `IR.QFT.body` retains all three loops. The
+proof evaluates their expressions, finite-width counters, stored angles and checked
+wire indices, then constructs a finite normal shared-machine execution. Its trace
+contains precisely the original H/CP/SWAP matrices; every successful result is the
+Fourier matrix, no fault is possible, and all local bindings are restored. The proof
+covers every natural size, including zero, and every profile satisfying `QFTRangeSafe`.
+The register is already supplied, so the theorem concerns arbitrary input states.
+
+This exact model uses the existing runtime `Value.binary` for angle division and
+interprets gates by ideal complex matrices. Its signed arithmetic is checked within
+the safe bounds; unsupported atomic operations fail explicitly. It is not an
+independent specification of every interpreter atomic callback. The theorem does not
+identify the runtime's final Float conversion with exact real angles. Backend
+approximation, tensor/control unitarity and arbitrary-placement refinement, instrument
+positivity/trace laws, and external-effect/divergence-sensitive semantics remain
+separate obligations. No admitted proofs or new axioms supply these claims.
 
 The standalone audit `lake env lean Tests/Verification.lean` prints the dependencies
 of the main proof results. They use the ordinary Lean foundations (`propext`,

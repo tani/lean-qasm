@@ -5,7 +5,9 @@
 # Verification proof-dependency audit
 
 This standalone module exposes the kernel dependencies of the original every-size QFT
-matrix equality, shared control machine and concrete Option interpreter refinement. It
+matrix equality, residual-loop total correctness, shared control machine and concrete
+Option interpreter refinement. The residual QFT theorem uses exact bit angles and
+ideal complex matrices, with normal termination, restored locals and no faults. It
 also audits runtime angle normalization and the conditional total-correctness transport
 separately; finite successful execution does not assert arbitrary-program termination
 or exact Float-to-real backend behavior.
@@ -19,6 +21,11 @@ or exact Float-to-real backend behavior.
 #print axioms QASMVerification.runQFT_iff
 #print axioms QASMVerification.qftCorrect_one
 #print axioms QASMVerification.qftCorrect_all
+#print axioms QASMVerification.qftProgramCorrect_all
+#print axioms QASMVerification.QFTExecution.inner_iterations
+#print axioms QASMVerification.QFTExecution.body_totalCorrect
+#print axioms QASMVerification.QFTExecution.body_action
+#print axioms QASMVerification.QFTExecution.machine_eval_iff
 #print axioms QASMVerification.qftCore_matrix
 #print axioms QASMVerification.swapRange_matrix
 #print axioms QASMVerification.control_refinement_iff

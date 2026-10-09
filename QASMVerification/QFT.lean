@@ -10,7 +10,8 @@ gate list below enumerates their iterations as a specification for every size; i
 not an execution-time rewrite of the IR. Qubit zero is least
 significant; controlled phases precede the final physical swaps. The empty register
 has no gate or allocation. The matrix contract below is proved in QFTSwapLaws; the
-stronger residual-program contract remains a separate specification.
+stronger residual-program contract is proved in QFTProgramLaws for the exact
+shared-machine execution model.
 
 Fixed-width execution must satisfy both angle precision and signed-index range bounds.
 This contract does not assert that a floating-point backend meets those conditions.
@@ -67,7 +68,7 @@ def qftMatrix (n : Nat) : Operator n :=
 /-- The every-size matrix contract, proved by `qftCorrect_all` in QFTSwapLaws. -/
 def QFTCorrect : Prop := ∀ n, qftMatrix n = fourier n
 
-/-- Linking residual Proc loops to this matrix is a separate refinement obligation. -/
+/-- Total correctness of residual Proc loops, proved in QFTProgramLaws for the exact model. -/
 def QFTProgramCorrect (executes : (n : Nat) → QASM.IR.Proc → Operator n → Prop)
     (fault : Nat → QASM.IR.Proc → Prop) : Prop :=
   ∀ n, let body := QASM.IR.QFT.body n (max 3 n) (n+2)

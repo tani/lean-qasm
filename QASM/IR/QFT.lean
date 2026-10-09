@@ -15,44 +15,82 @@ finite-to-mathematical refinement are separate conditions.
 
 ```lean
 namespace QASM.IR.QFT
-private def integer (width : Nat) (value : Int) : Expr :=
+def integer (width : Nat) (value : Int) : Expr :=
   { type := .scalar (.sint width), node := .intLit value }
-private def readVar (var : Var) : Expr := { type := var.type, node := .var var.id }
-private def binary (type : QASM.IR.Type) (op : BinaryOp) (a b : Expr) : Expr :=
+def readVar (var : Var) : Expr := { type := var.type, node := .var var.id }
+def binary (type : QASM.IR.Type) (op : BinaryOp) (a b : Expr) : Expr :=
   { type, node := .binary op a b }
-private def target (var : Var) : LValue := { root := var.id, type := var.type }
-private def apply (kind : PrimitiveKind) (name : String) (parameters : Array Expr)
+def target (var : Var) : LValue := { root := var.id, type := var.type }
+def apply (kind : PrimitiveKind) (name : String) (parameters : Array Expr)
     (indices : Array Expr) : Proc :=
   .operation (.apply { target := kind, name, parameters }
     (indices.map fun i => .wire ⟨0⟩ #[i]))
 
-def body (n width indexWidth : Nat) : Proc := Id.run do
-  if n = 0 then return .skip
-  let intTy : QASM.IR.Type := .scalar (.sint indexWidth)
-  let angleTy : QASM.IR.Type := .scalar (.angle width)
-  let uintTy : QASM.IR.Type := .scalar (.uint width)
-  let j : Var := { id := ⟨1⟩, name := "j", type := intTy }
-  let k : Var := { id := ⟨2⟩, name := "k", type := intTy }
-  let theta : Var := { id := ⟨3⟩, name := "theta", type := angleTy }
-  let two : Var := { id := ⟨4⟩, name := "two", type := uintTy }
-  let lit := integer indexWidth
-  let jMinusOne := binary intTy .sub (readVar j) (lit 1)
-  let hasInner := binary (.scalar .boolean) .gt (readVar j) (lit 0)
-  let inner := Proc.forLoop k (.range jMinusOne (lit (-1)) (lit 0))
-    (.sequence #[
-      .operation (.assign (target theta) (binary angleTy .div (readVar theta) (readVar two))),
-      apply .cp "cp" #[readVar theta] #[readVar k, readVar j]])
-  let outer := Proc.forLoop j (.range (lit (Int.ofNat n - 1)) (lit (-1)) (lit 0))
-    (.scope #[theta] (.sequence #[
-      apply .h "h" #[] #[readVar j],
-      .operation (.declare theta (some { type := .scalar (.float 64), node := .realConstant .pi })),
-      .branch hasInner inner none]))
-  let swaps := if n < 2 then Proc.skip else
-    Proc.forLoop j (.range (lit 0) (lit 1) (lit (Int.ofNat (n / 2) - 1)))
-      (apply .swap "swap" #[] #[readVar j,
-        binary intTy .sub (lit (Int.ofNat n - 1)) (readVar j)])
-  return .scope #[two] (.sequence #[
-    .operation (.declare two (some { type := uintTy, node := .intLit 2 })), outer, swaps])
+def jVar (indexWidth : Nat) : Var :=
+  { id := ⟨1⟩, name := "j", type := .scalar (.sint indexWidth) }
+def kVar (indexWidth : Nat) : Var :=
+  { id := ⟨2⟩, name := "k", type := .scalar (.sint indexWidth) }
+def thetaVar (width : Nat) : Var :=
+  { id := ⟨3⟩, name := "theta", type := .scalar (.angle width) }
+def twoVar (width : Nat) : Var :=
+  { id := ⟨4⟩, name := "two", type := .scalar (.uint width) }
+
+```
+
+## Loop components
+
+Named components expose the residual syntax to proofs without expanding any loop.
+The inner iteration first updates the stored angle, then reads that updated value
+for the controlled phase. The outer scope restores theta after each target.
+
+```lean
+def innerStep (width indexWidth : Nat) : Proc := .sequence #[
+  .operation (.assign (target (thetaVar width))
+    (binary (.scalar (.angle width)) .div
+      (readVar (thetaVar width)) (readVar (twoVar width)))),
+  apply .cp "cp" #[readVar (thetaVar width)]
+    #[readVar (kVar indexWidth), readVar (jVar indexWidth)]]
+
+def innerLoop (width indexWidth : Nat) : Proc :=
+  .forLoop (kVar indexWidth)
+    (.range (binary (.scalar (.sint indexWidth)) .sub
+      (readVar (jVar indexWidth)) (integer indexWidth 1))
+      (integer indexWidth (-1)) (integer indexWidth 0))
+    (innerStep width indexWidth)
+
+def outerStep (width indexWidth : Nat) : Proc :=
+  .scope #[thetaVar width] (.sequence #[
+    apply .h "h" #[] #[readVar (jVar indexWidth)],
+    .operation (.declare (thetaVar width)
+      (some { type := .scalar (.float 64), node := .realConstant .pi })),
+    .branch (binary (.scalar .boolean) .gt
+      (readVar (jVar indexWidth)) (integer indexWidth 0))
+      (innerLoop width indexWidth) none])
+
+def outerLoop (n width indexWidth : Nat) : Proc :=
+  .forLoop (jVar indexWidth)
+    (.range (integer indexWidth (Int.ofNat n - 1))
+      (integer indexWidth (-1)) (integer indexWidth 0))
+    (outerStep width indexWidth)
+
+def swapStep (n indexWidth : Nat) : Proc :=
+  apply .swap "swap" #[] #[readVar (jVar indexWidth),
+    binary (.scalar (.sint indexWidth)) .sub
+      (integer indexWidth (Int.ofNat n - 1)) (readVar (jVar indexWidth))]
+
+def swapLoop (n indexWidth : Nat) : Proc :=
+  if n < 2 then .skip else
+    .forLoop (jVar indexWidth)
+      (.range (integer indexWidth 0) (integer indexWidth 1)
+        (integer indexWidth (Int.ofNat (n / 2) - 1)))
+      (swapStep n indexWidth)
+
+def body (n width indexWidth : Nat) : Proc :=
+  if n = 0 then .skip else
+    .scope #[twoVar width] (.sequence #[
+      .operation (.declare (twoVar width)
+        (some { type := .scalar (.uint width), node := .intLit 2 })),
+      outerLoop n width indexWidth, swapLoop n indexWidth])
 
 def program (n width indexWidth : Nat) : Program :=
   if n = 0 then {} else
