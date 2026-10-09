@@ -257,6 +257,24 @@ private def testQFTLoops : IO Unit := do
     assertTrue (trace.applied.map unitaryKey == emittedTrace.applied.map unitaryKey)
       s!"QFT loops or dyadic angles changed after emission at {n}"
 
+private def testFailureRestoration : IO Unit := do
+  let localVar : IR.Var := { id := ⟨100⟩, name := "local", type := .scalar (.sint 64) }
+  let global : IR.Var := { id := ⟨101⟩, name := "global", type := .scalar (.sint 64) }
+  let literal := fun value => { type := localVar.type, node := IR.ExprNode.intLit value : IR.Expr }
+  let assign := fun value => IR.Proc.operation (IR.Op.assign
+    { root := global.id, type := global.type } (literal value))
+  let proc := IR.Proc.scope #[localVar] (.sequence #[
+    .operation (.declare localVar (some (literal 7))), assign 8,
+    .operation (.unsupported .calibration "stop"), assign 9])
+  let initial : Execution.ExecutionState Nat := {
+    values := (({} : Std.HashMap IR.VarId Value).insert localVar.id (.integer 42)).insert global.id (.integer 0) }
+  let ((final, outcome), _) := TraceBackend.run (Execution.runFrom ({} : IR.Program) proc initial)
+  assertTrue (final.values[localVar.id]? == some (.integer 42)) "failure did not restore lexical binding"
+  assertTrue ((final.values[global.id]?.getD .unit).asInt == 8) "failure executed the sequence tail"
+  assertTrue (match outcome with | .error (.internal "stop") => true | _ => false)
+    "failure was converted into whole-program termination"
+
+
 def run : IO Unit := do
   testOutputs
   testCalls
@@ -265,6 +283,7 @@ def run : IO Unit := do
   testEmission
   testExactSyntax
   testQFTLoops
+  testFailureRestoration
 
 end QASMTests.Regression
 ```

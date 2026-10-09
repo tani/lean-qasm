@@ -4,10 +4,11 @@
 
 # Verification proof-dependency audit
 
-This standalone module exposes the kernel dependencies of the main mathematical and
-runtime-refinement results. It deliberately audits the concrete runtime-angle theorem
-separately from the conditional total-correctness transport theorem. The every-size path-weight theorem and bidirectional structured Proc simulation are
-also audited. They do not assert the remaining gate-product or partial-interpreter obligations.
+This standalone module exposes the kernel dependencies of the original every-size QFT
+matrix equality, shared control machine and concrete Option interpreter refinement. It
+also audits runtime angle normalization and the conditional total-correctness transport
+separately; finite successful execution does not assert arbitrary-program termination
+or exact Float-to-real backend behavior.
 
 ```lean
 #print axioms QASMVerification.nativeProfile_unitary
@@ -17,6 +18,15 @@ also audited. They do not assert the remaining gate-product or partial-interpret
 #print axioms QASMVerification.qftSteps_valid
 #print axioms QASMVerification.runQFT_iff
 #print axioms QASMVerification.qftCorrect_one
+#print axioms QASMVerification.qftCorrect_all
+#print axioms QASMVerification.qftCore_matrix
+#print axioms QASMVerification.swapRange_matrix
+#print axioms QASMVerification.control_refinement_iff
+#print axioms QASMVerification.Machine.machine_proc_refinement_iff
+#print axioms QASMVerification.runtimeKernel_normal
+#print axioms QASMVerification.runFrom_refinement_iff
+#print axioms QASMVerification.run_refinement_iff
+#print axioms QASM.Execution.ControlMachine.drive_failure
 #print axioms QASMVerification.qft_target_block
 #print axioms QASMVerification.qft_top_hadamard
 #print axioms QASMVerification.hadamard_row_action

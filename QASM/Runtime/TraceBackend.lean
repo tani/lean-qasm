@@ -104,6 +104,7 @@ structure State where
   observedMeasurements : Array (Nat × Bool) := #[]
   resets : Array Nat := #[]
   barriers : Array (Barrier Nat) := #[]
+  deriving Inhabited
 ```
 
 ## Runtime types

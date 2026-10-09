@@ -7,8 +7,9 @@
 
 Routing composition cancels the intermediate coordinate map using its proved unitarity.
 Total correctness transfers only when both successful behavior and faults refine the
-specification. This theorem does not instantiate that premise for the partial interpreter;
-primitive operations, expression calls and loop evaluation still need a concrete simulation.
+specification. RuntimeLaws separately establishes successful finite control refinement
+for the actual Option interpreter; independent atomic semantics, backend accuracy and
+fault freedom are additional premises of this stronger total-correctness transport.
 
 ```lean
 noncomputable section

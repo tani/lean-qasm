@@ -10,9 +10,9 @@ recursive subroutine terminates. Atomic operations, expression evaluation, switc
 and binding restoration are supplied by a `Model`; these relations can describe quantum
 measurement probabilistically or nondeterministically in a subsequent concrete model.
 
-This module proves control-flow laws for every model and every process. It does not assert
-that the existing `partial` runtime interpreter implements this relation: that requires a
-separate refinement proof. Runtime errors and divergence are deliberately outside this
+This module proves control-flow laws for every model and every process. The richer
+EffectSemantics relation handles termination during expressions and has a separate
+refinement theorem for the actual Option interpreter in QASMVerification.RuntimeLaws. Runtime errors and divergence are deliberately outside this
 successful-execution relation. Equivalence below is therefore finite successful-behavior
 equivalence, not a termination-sensitive or probabilistic equivalence.
 

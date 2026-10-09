@@ -1,6 +1,7 @@
     import LiterateLean
     import QASM.Runtime
     import QASM.IR.Program
+    import QASM.Execution.ControlMachine
     open scoped LiterateLean
 
 # Interpreting canonical IR
@@ -46,6 +47,7 @@ before forwarding either form of transfer.
 structure ExecutionState (qubit : Type) where
   values : Std.HashMap VarId QASM.Value := {}
   qubits : Std.HashMap VarId (Array qubit) := {}
+  deriving Inhabited
 
 inductive Signal (error : Type) where
   | failure (error : QASM.RunError error)
@@ -54,13 +56,7 @@ inductive Signal (error : Type) where
 abbrev ExecM (m : Type → Type) (qubit error : Type) :=
   ExceptT (Signal error) (StateT (ExecutionState qubit) m)
 
-inductive Flow where
-  | next
-  | breakLoop
-  | continueLoop
-  | returned (value : Option QASM.Value)
-  | ended
-  deriving Inhabited
+abbrev Flow := QASM.Execution.Semantics.Flow
 
 private structure SavedBinding (qubit : Type) where
   id : VarId
@@ -337,8 +333,8 @@ private def constantApproximation : RealConstant → Float
 ## The recursive interpreter
 
 Expressions, lvalues, quantum operands, circuits, callables, operations, and processes
-form one recursive execution graph, so Lean requires them in a single `mutual` block. The
-definitions follow the dependency order encountered during execution:
+form one recursive atomic execution graph. Structured control is delegated to the shared
+fixed-point control machine. The definitions follow the dependency order encountered during execution:
 
 1. `evalExpr` evaluates typed scalar and aggregate expressions and dispatches subroutine
    calls;
@@ -356,8 +352,53 @@ Source `if`, `for`, and `while` therefore remain `Proc.branch`, `Proc.forLoop`, 
 shared interpreter, not in the generated `execute` wrapper.
 
 ```lean
+private def restoreLocals (locals : Array Var) (saved final : ExecutionState qubit) :
+    ExecutionState qubit :=
+  locals.foldl (fun state entry => restoreBinding state (saveBinding saved entry.id)) final
+
+private def capture [Monad m] (action : ExecM m qubit backendError α)
+    (initial : ExecutionState qubit) :
+    m (ExecutionState qubit × Except (QASM.RunError backendError) (Option α)) := do
+  let (outcome, final) ← action.run.run initial
+  pure (final, match outcome with
+    | .ok value => .ok (some value)
+    | .error .ended => .ok none
+    | .error (.failure error) => .error error)
+
+def kernelOfAtomic [Monad m]
+    (operation : Op → ExecM m qubit backendError Unit)
+    (expression : Expr → ExecM m qubit backendError QASM.Value)
+    (domain : IterationDomain → ExecM m qubit backendError (Array QASM.Value))
+    (select : Expr → Array SwitchCase → Option Proc → ExecM m qubit backendError Proc) :
+    ControlMachine.Kernel m (ExecutionState qubit) (QASM.RunError backendError) := {
+  operation := fun op state => do
+    let (final, result) ← capture (operation op) state
+    pure (final, result.map (fun value => if value.isSome then .next else .ended))
+  condition := fun e state => capture (QASM.Value.truthy <$> expression e) state
+  domain := fun d state => capture (Array.toList <$> domain d) state
+  switchCase := fun e cases other state => capture (select e cases other) state
+  returnValue := fun e state => do
+    let (final, result) ← capture (e.mapM expression) state
+    pure (final, result.map (fun value => match value with
+      | none => (none, true)
+      | some value => (value, false)))
+  bindIterator := fun iterator value state => { state with
+    values := state.values.insert iterator.id (castValue iterator.type value) }
+  restore := restoreLocals }
+
+def executeKernel [Monad m] [Lean.Order.MonadTail m]
+    (kernel : ControlMachine.Kernel m (ExecutionState qubit) (QASM.RunError backendError))
+    (proc : Proc) : ExecM m qubit backendError Flow := do
+  let initial ← get
+  let (final, result) ← liftM (ControlMachine.eval kernel proc initial)
+  set final
+  match result with
+  | .error error => throw (.failure error)
+  | .ok .ended => throw .ended
+  | .ok flow => pure flow
+
 mutual
-  private partial def evalExpr [Monad m] [QASM.QuantumBackend m qubit backendError]
+  private partial def evalExpr [Monad m] [Lean.Order.MonadTail m] [QASM.QuantumBackend m qubit backendError]
       (program : Program) (value : Expr) : ExecM m qubit backendError QASM.Value := do
     match value.node with
     | .intLit literal => pure (castValue value.type (.integer literal))
@@ -420,12 +461,12 @@ mutual
     | .set values | .array values => .array <$> values.mapM (evalExpr program)
     | .unsupported _ detail => fail (.internal detail)
 
-  private partial def evalTypedExpr [Monad m] [QASM.QuantumBackend m qubit backendError]
+  private partial def evalTypedExpr [Monad m] [Lean.Order.MonadTail m] [QASM.QuantumBackend m qubit backendError]
       (program : Program) (target : QASM.IR.Type) (expression : Expr) : ExecM m qubit backendError QASM.Value := do
     let value ← evalExpr program expression
     pure ((exactAngle? target expression).getD (castValue target value))
 
-  private partial def captureTarget [Monad m] [QASM.QuantumBackend m qubit backendError]
+  private partial def captureTarget [Monad m] [Lean.Order.MonadTail m] [QASM.QuantumBackend m qubit backendError]
       (program : Program) (target : LValue) : ExecM m qubit backendError CapturedTarget := do
     let mut selectors := #[]
     for group in target.indices do
@@ -450,12 +491,12 @@ mutual
       else updateTarget root target.selectors newValue
     set { state with values := state.values.insert target.root updated }
 
-  private partial def assignLValue [Monad m] [QASM.QuantumBackend m qubit backendError]
+  private partial def assignLValue [Monad m] [Lean.Order.MonadTail m] [QASM.QuantumBackend m qubit backendError]
       (program : Program) (target : LValue) (newValue : QASM.Value) :
       ExecM m qubit backendError Unit := do
     writeTarget (← captureTarget program target) newValue
 
-  private partial def evalQuantumExpr [Monad m] [QASM.QuantumBackend m qubit backendError]
+  private partial def evalQuantumExpr [Monad m] [Lean.Order.MonadTail m] [QASM.QuantumBackend m qubit backendError]
       (program : Program) (value : Expr) : ExecM m qubit backendError (Array qubit) := do
     match value.node with
     | .var id =>
@@ -472,7 +513,7 @@ mutual
         pure values
     | _ => fail (.internal "invalid quantum alias expression")
 
-  private partial def evalQuantumOperand [Monad m]
+  private partial def evalQuantumOperand [Monad m] [Lean.Order.MonadTail m]
       [QASM.QuantumBackend m qubit backendError] (program : Program)
       (operand : QuantumOperand) : ExecM m qubit backendError (Array qubit) := do
     match operand with
@@ -489,7 +530,7 @@ mutual
           | .error error => fail error
         pure values
 
-  private partial def buildCircuit [Monad m] [QASM.QuantumBackend m qubit backendError]
+  private partial def buildCircuit [Monad m] [Lean.Order.MonadTail m] [QASM.QuantumBackend m qubit backendError]
       (program : Program) (circuit : Circuit) (lanes : Array qubit) :
       ExecM m qubit backendError (Array (QASM.Unitary qubit) × Array qubit) := do
     match circuit with
@@ -544,7 +585,7 @@ mutual
         pure (#[operation], controls ++ targetLanes)
     | .unsupported _ detail _ _ => fail (.internal detail)
 
-  private partial def invokeGate [Monad m] [QASM.QuantumBackend m qubit backendError]
+  private partial def invokeGate [Monad m] [Lean.Order.MonadTail m] [QASM.QuantumBackend m qubit backendError]
       (program : Program) (declaration : GateDecl) (parameters : Array Float)
       (targets : Array qubit) : ExecM m qubit backendError (QASM.Unitary qubit) := do
     let state ← get
@@ -561,7 +602,7 @@ mutual
     set restored
     pure (unitarySequence operations)
 
-  private partial def applyCircuitRef [Monad m] [QASM.QuantumBackend m qubit backendError]
+  private partial def applyCircuitRef [Monad m] [Lean.Order.MonadTail m] [QASM.QuantumBackend m qubit backendError]
       (program : Program) (gate : CircuitRef) (operands : Array QuantumOperand) :
       ExecM m qubit backendError Unit := do
     let operandArrays ← operands.mapM (evalQuantumOperand program)
@@ -595,7 +636,7 @@ mutual
       backend (QASM.QuantumBackend.apply (m := m) (Qubit := qubit)
         (Error := backendError) operation)
 
-  private partial def invokeSubroutine [Monad m] [QASM.QuantumBackend m qubit backendError]
+  private partial def invokeSubroutine [Monad m] [Lean.Order.MonadTail m] [QASM.QuantumBackend m qubit backendError]
       (program : Program) (callee : CallableId) (arguments : Array Argument) :
       ExecM m qubit backendError QASM.Value := do
     let declaration ← match findSubroutine program callee with
@@ -635,7 +676,7 @@ mutual
     | .ok .ended => throw .ended
     | .ok _ => pure .unit
 
-  private partial def evalDomain [Monad m] [QASM.QuantumBackend m qubit backendError]
+  private partial def evalDomain [Monad m] [Lean.Order.MonadTail m] [QASM.QuantumBackend m qubit backendError]
       (program : Program) (domain : IterationDomain) :
       ExecM m qubit backendError (Array QASM.Value) := do
     match domain with
@@ -651,10 +692,10 @@ mutual
         | .bits bits => pure (bits.map QASM.Value.bit)
         | value => pure value.asArray
 
-  private partial def evalOp [Monad m] [QASM.QuantumBackend m qubit backendError]
-      (program : Program) (operation : Op) : ExecM m qubit backendError Flow := do
+  private partial def evalOp [Monad m] [Lean.Order.MonadTail m] [QASM.QuantumBackend m qubit backendError]
+      (program : Program) (operation : Op) : ExecM m qubit backendError Unit := do
     match operation with
-    | .eval value => evalExpr program value *> pure .next
+    | .eval value => evalExpr program value *> pure ()
     | .declare var initializer =>
         if isQuantumType var.type then
           match initializer with
@@ -667,9 +708,9 @@ mutual
             | some value => evalTypedExpr program var.type value
             | none => pure (defaultValue var.type)
           modify fun state => { state with values := state.values.insert var.id value }
-        pure .next
-    | .assign target value => assignLValue program target (← evalTypedExpr program target.type value) *> pure .next
-    | .apply gate operands => applyCircuitRef program gate operands *> pure .next
+        pure ()
+    | .assign target value => assignLValue program target (← evalTypedExpr program target.type value) *> pure ()
+    | .apply gate operands => applyCircuitRef program gate operands *> pure ()
     | .measure source target =>
         let qubits ← evalQuantumOperand program source
         let mut bits := #[]
@@ -681,91 +722,47 @@ mutual
         | .lvalue target =>
             let value := if bits.size == 1 then QASM.Value.bit bits[0]! else .bits bits
             assignLValue program target value
-        pure .next
+        pure ()
     | .reset operand =>
         for wire in (← evalQuantumOperand program operand) do
           backend (QASM.QuantumBackend.reset (m := m) (Qubit := qubit)
             (Error := backendError) wire)
-        pure .next
+        pure ()
     | .barrier operands =>
         let qubits ← operands.flatMapM (evalQuantumOperand program)
         backend (QASM.QuantumBackend.barrier (m := m) (Qubit := qubit)
           (Error := backendError) (.targets qubits))
-        pure .next
+        pure ()
     | .allocate declaration =>
         let qubits ← backend (QASM.QuantumBackend.allocate (m := m) (Qubit := qubit)
           (Error := backendError) declaration.size)
         modify fun state => { state with qubits := state.qubits.insert declaration.var qubits }
-        pure .next
-    | .call callee arguments => invokeSubroutine program callee arguments *> pure .next
+        pure ()
+    | .call callee arguments => invokeSubroutine program callee arguments *> pure ()
     | .emitExtern _ => fail (.internal "extern execution is not portable")
     | .unsupported _ detail => fail (.internal detail)
 
-  private partial def evalProc [Monad m] [QASM.QuantumBackend m qubit backendError]
+  private partial def selectCase [Monad m] [Lean.Order.MonadTail m]
+      [QASM.QuantumBackend m qubit backendError] (program : Program)
+      (scrutineeExpr : Expr) (cases : Array SwitchCase) (other : Option Proc) :
+      ExecM m qubit backendError Proc := do
+    let scrutinee ← evalExpr program scrutineeExpr
+    for entry in cases do
+      match entry with
+      | .mk labels body =>
+        let mut selected := false
+        for label in labels do
+          let labelValue := castValue scrutineeExpr.type (← evalExpr program label)
+          selected := selected || (QASM.Value.binary "==" scrutinee labelValue).truthy
+        if selected then return body
+    pure (other.getD .skip)
+
+  private partial def evalProc [Monad m] [Lean.Order.MonadTail m]
+      [QASM.QuantumBackend m qubit backendError]
       (program : Program) (proc : Proc) : ExecM m qubit backendError Flow := do
-    match proc with
-    | .skip => pure .next
-    | .operation operation => evalOp program operation
-    | .sequence steps =>
-        for step in steps do
-          match ← evalProc program step with
-          | .next => pure ()
-          | flow => return flow
-        pure .next
-    | .scope locals body =>
-        let state ← get
-        let saved := locals.map (fun entry => saveBinding state entry.id)
-        let outcome : Except (Signal backendError) Flow ← try pure (.ok (← evalProc program body))
-          catch signal => pure (.error signal)
-        let mut restored ← get
-        for binding in saved do restored := restoreBinding restored binding
-        set restored
-        match outcome with
-        | .ok flow => pure flow
-        | .error signal => throw signal
-    | .branch condition thenBranch elseBranch =>
-        if (← evalExpr program condition).truthy then evalProc program thenBranch
-        else match elseBranch with | some branch => evalProc program branch | none => pure .next
-    | .switch scrutineeExpr cases default =>
-        let scrutinee ← evalExpr program scrutineeExpr
-        for entry in cases do
-          match entry with
-          | .mk labels body =>
-              let mut selected := false
-              for label in labels do
-                let labelValue := castValue scrutineeExpr.type (← evalExpr program label)
-                selected := selected || (QASM.Value.binary "==" scrutinee labelValue).truthy
-              if selected then return ← evalProc program body
-        match default with | some body => evalProc program body | none => pure .next
-    | .forLoop iterator domain body =>
-        let state ← get
-        let saved := saveBinding state iterator.id
-        let outcome : Except (Signal backendError) Flow ← try
-          let mut flow := Flow.next
-          for value in (← evalDomain program domain) do
-            modify fun state => { state with
-              values := (state.values.insert iterator.id (castValue iterator.type value)) }
-            match ← evalProc program body with
-            | .breakLoop => break
-            | .continueLoop | .next => pure ()
-            | transfer => flow := transfer; break
-          pure (.ok flow)
-        catch signal => pure (.error signal)
-        modify fun state => restoreBinding state saved
-        match outcome with
-        | .ok flow => pure flow
-        | .error signal => throw signal
-    | .whileLoop condition body =>
-        while (← evalExpr program condition).truthy do
-          match ← evalProc program body with
-          | .breakLoop => break
-          | .continueLoop | .next => pure ()
-          | flow => return flow
-        pure .next
-    | .breakLoop => pure .breakLoop
-    | .continueLoop => pure .continueLoop
-    | .returnValue value => .returned <$> value.mapM (evalExpr program)
-    | .endProgram => throw .ended
+    executeKernel (kernelOfAtomic (evalOp program) (evalExpr program) (evalDomain program)
+      (selectCase program)) proc
+
 end
 
 ```
@@ -778,22 +775,32 @@ observable quantum effects cross `QuantumBackend`, while generated output codecs
 the returned `VarId` map.
 
 ```lean
+/-- The actual atomic callbacks used by both top-level and nested runtime execution. -/
+def runtimeKernel [Monad m] [Lean.Order.MonadTail m] [QASM.QuantumBackend m qubit backendError]
+    (program : Program) : ControlMachine.Kernel m (ExecutionState qubit) (QASM.RunError backendError) :=
+  kernelOfAtomic (evalOp program) (evalExpr program) (evalDomain program) (selectCase program)
+
+/-- Executes any Proc from an existing classical and quantum environment. -/
+def runFrom [Monad m] [Lean.Order.MonadTail m] [QASM.QuantumBackend m qubit backendError]
+    (program : Program) (proc : Proc) (initial : ExecutionState qubit) :
+    m (ExecutionState qubit × Except (QASM.RunError backendError) Flow) :=
+  ControlMachine.eval (runtimeKernel program) proc initial
+
+/-- Boundary initialization is separate from the transformation of an existing register. -/
+def initialState (program : Program) (inputs : Array (VarId × QASM.Value)) : ExecutionState qubit :=
+  let supplied := inputs.foldl (fun state (id, value) =>
+    { state with values := state.values.insert id value }) ({} : ExecutionState qubit)
+  program.outputs.foldl (fun state declaration =>
+    { state with values := state.values.insert declaration.var.id (defaultValue declaration.var.type) }) supplied
+
 /-- Executes a resolved canonical program and returns its final classical environment. -/
-def run [Monad m] [QASM.QuantumBackend m qubit backendError]
+def run [Monad m] [Lean.Order.MonadTail m] [QASM.QuantumBackend m qubit backendError]
     (program : Program) (inputs : Array (VarId × QASM.Value)) :
     m (Except (QASM.RunError backendError) (Std.HashMap VarId QASM.Value)) := do
-  let mut initial : ExecutionState qubit := {}
-  for (id, value) in inputs do
-    initial := { initial with values := initial.values.insert id value }
-  for declaration in program.outputs do
-    initial := { initial with
-      values := initial.values.insert declaration.var.id (defaultValue declaration.var.type) }
-  let action : ExecM m qubit backendError Unit := do
-    discard <| evalProc program program.body
-  let (outcome, state) ← action.run.run initial
+  let (state, outcome) ← runFrom program program.body (initialState program inputs)
   match outcome with
-  | .error (.failure error) => pure (.error error)
-  | .error .ended | .ok _ => pure (.ok state.values)
+  | .error error => pure (.error error)
+  | .ok _ => pure (.ok state.values)
 
 end QASM.Execution
 ```

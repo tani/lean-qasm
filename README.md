@@ -90,29 +90,43 @@ The proof modules establish the following kernel-checked results:
 | `runtime_angle_half`, `runtimeHalves_exact`, `qft_runtime_phase` | Concrete `Value.binary` divisions starting from the half-turn bit pattern, and their exact dyadic real values under the width bound |
 | `qftSteps_valid`, `qftCore_succ` | All generated gate indices are valid; the outer-loop successor equation holds for every size |
 | `runQFT_iff` | Valid reference gate-sequence execution equals `qftMatrix n` on an arbitrary initial operator, for every size |
-| `qftCorrect_zero`, `qftCorrect_one` | Exact Fourier equality for sizes zero and one |
+| `qftCorrect`, `qftCorrect_all` | Original `qftMatrix n = fourier n` for every natural size, including physical SWAPs, normalization and positive Fourier sign |
+| `qftCore_matrix`, `swapRange_matrix` | Actual gate multiplication equals native path amplitudes; actual physical SWAP multiplication reverses basis rows |
 | `binary_expansion`, `reverseBits_involution`, `bitReversal` | Binary reconstruction and a verified reversal permutation for every register width |
 | `hadamard_row_action` | Actual Hadamard matrix multiplication reduces to exactly two predecessor basis states for every valid target and arbitrary accumulator |
 | `qft_target_block`, `qft_top_hadamard` | Actual controlled-phase matrix fold reduces to a diagonal block; highest-target H agrees with identity tensor H for every width |
 | `qft_target_phase`, `qftPathAmplitude_reversed_eq_fourier` | The native gate-path weight equals each Fourier component for every size, including normalization and reversal |
 | `proc_simulation`, `proc_lifting` | All structured Proc constructors preserve and lift finite executions from atomic kernel laws |
+| `control_refinement_iff` | Least fixed-point structured evaluation equals the declarative semantics for every Proc and atomic kernel |
+| `machine_proc_refinement_iff` | Shared frame-machine evaluation equals declarative finite successful execution, including kernels that can fail |
+| `runFrom_refinement_iff`, `run_refinement_iff` | Actual Option interpreter callbacks, all Proc constructors, typed input/output initialization and the public result boundary; no assumed whole-program simulation |
+| `drive_failure` | Failure restores every lexical and iterator frame and skips all remaining control work, for any lawful tail monad |
 | `trace_proc_refinement_iff` | Bidirectional equivalence between gate-trace and matrix-accumulating Proc semantics, for any event kernel; its atomic laws are discharged |
 | `circuitEval_boundaries`, `routing_compose` | Interpretation derivations preserve declared qubit boundaries; adjacent verified routing maps cancel |
 | `totalCorrect_transfer` | Total correctness transfers when both successful behavior and faults refine the specification |
 
-`QFTCorrect` and `QFTProgramCorrect` remain **unproved obligations**. The general
-gate-product equality still needs the sparse-matrix proof connecting `qftMatrix` to
-`qftPathAmplitude`, and the physical swap list to `bitReversal`. The path-weight theorem
-is not a theorem about `qftMatrix`. Residual QFT Proc-loop simulation, concrete classical evaluation and
-call/frame restoration, and a full refinement theorem for the partial interpreter are
-not yet established. `trace_proc_refinement_iff` covers all finite control-flow
-constructors, but does not instantiate its event kernel with `Execution.run` or prove
-fault freedom. `runQFT_iff` concerns the reference gate-sequence semantics, not
-`Execution.run`; `totalCorrect_transfer` does not supply its own refinement premises.
-The bit-angle proof does not identify the runtime's final Float conversion with an exact
-real angle. Backend approximation, tensor/control unitarity and arbitrary-placement
-refinement, instrument positivity/trace laws, and divergence-sensitive semantics remain
-separate obligations. No `sorry` proofs or new quantum axioms supply these claims.
+`QFTCorrect` is proved for every size by `qftCorrect_all`. The definition of
+`qftMatrix` still multiplies the original H/CP/SWAP gate list; it has not been replaced
+with the Fourier formula. The shared `ControlMachine.step` and least fixed-point driver
+now execute both top-level and nested `Execution.run` control. An operation can only
+complete normally or end the program; failure unwinds lexical and iterator frames.
+
+The concrete bidirectional runtime theorem uses `Option` effects and graphs of the
+actual atomic callbacks. It characterizes finite successful results, including normal
+whole-program termination. It proves neither fault freedom for arbitrary programs nor
+an IO/device effect model. Generated `execute` wrappers now require `Lean.Order.MonadTail`
+alongside `Monad`; standard IO, Option, Id and state transformers have instances (state
+transformers require a nonempty state). Atomic expression/call correctness against an
+independent classical specification and exact/approximate quantum backend laws remain
+separate from the proved structured-control refinement.
+
+`QFTProgramCorrect` is a separate, stronger contract for `IR.QFT.body`: its residual
+classical loops must be shown to generate the reference gate list, with termination and
+fault freedom. That theorem is not supplied by the general control refinement. The
+bit-angle proof also does not identify the runtime's final Float conversion with an
+exact real angle. Backend approximation, tensor/control unitarity and arbitrary-placement
+refinement, instrument positivity/trace laws, and external-effect/divergence-sensitive
+semantics remain separate obligations. No admitted proofs or new axioms supply these claims.
 
 The standalone audit `lake env lean Tests/Verification.lean` prints the dependencies
 of the main proof results. They use the ordinary Lean foundations (`propext`,
@@ -120,7 +134,8 @@ of the main proof results. They use the ordinary Lean foundations (`propext`,
 
 Regression tests cover exact decimal emission, a representable 64-bit angle that would
 lose low bits through Float, small user-gate angles, and QFT execution and emission for
-sizes zero through six. These finite checks do not prove the general Fourier equality.
+sizes zero through six, and preservation of lexical bindings and preceding writes on
+a runtime failure. The general Fourier equality is established by the separate kernel proof.
 
 ## The `qasm!` interface
 
@@ -225,8 +240,10 @@ For general program laws, `Execution.Semantics.Exec` gives a relational account 
 successful control flow, parameterized by an expression and atomic-operation model.
 `Execution.Semantics.sequence_skip_left` proves neutrality of a leading `skip` for every
 process and model, so it applies directly to `(Sized.program n).body` with `n` still open.
-This is separate from the existing `partial` interpreter: no refinement or quantum
-correctness theorem is asserted. `IR.Substitution` is total and proves that size/integer
+The completion-aware `EffectSemantics` additionally covers whole-program termination
+during expression evaluation. `run_refinement_iff` connects all finite successful
+Option executions of the actual interpreter to that model; the model uses its concrete
+atomic callbacks. This control theorem does not assert ideal-matrix backend accuracy. `IR.Substitution` is total and proves that size/integer
 substitution preserves circuit domains and codomains.
 
 ### Circuit diagrams

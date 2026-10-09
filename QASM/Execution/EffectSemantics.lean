@@ -8,8 +8,8 @@ Atomic operations carry completion explicitly. Expression evaluation in a condit
 iteration domain, or switch can end the entire program: `none` means that completion,
 not a missing value. Return evaluation also carries completion so a call ending the
 program cannot be converted into an ordinary return. The original finite semantics
-remains available unchanged. These relations are not a refinement theorem for the
-partial interpreter. Fault and divergence are represented by absence of a derivation.
+remains available unchanged. ControlLaws and MachineLaws prove their correspondence with fixed-point evaluation;
+RuntimeLaws specializes it to the actual Option interpreter. Fault and divergence are represented by absence of a derivation.
 
 ```lean
 namespace QASM.Execution.EffectSemantics

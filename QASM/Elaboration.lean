@@ -173,7 +173,7 @@ private partial def freshGeneratedName (parameters : Array String) (candidate : 
 
 private def backendBinders (monad qubit error : String) : String :=
   "{" ++ monad ++ " : Type → Type} {" ++ qubit ++ " " ++ error ++ " : Type} " ++
-  s!"[Monad {monad}] [QASM.QuantumBackend {monad} {qubit} {error}]"
+  s!"[Monad {monad}] [Lean.Order.MonadTail {monad}] [QASM.QuantumBackend {monad} {qubit} {error}]"
 
 private def executeCommand (name : String) (program : QASM.IR.Program Size Integer)
     (parameters : Array String) : String :=
