@@ -80,15 +80,33 @@ Composition executes its left child first; tensor puts its left child on low bit
 Routing permutations describe coordinate changes, while SWAP is a physical operation.
 The native U definition preserves its global phase, including under control.
 
-The kernel checks composition identity and associativity, empty-family equations, and
-`canonical_range_safe` for every `n`. `QFTCorrect` and `QFTProgramCorrect` are **proof
-obligations**, not established theorems. The latter requires successful execution,
-agreement of every successful result, and absence of faults. The callback models still
-need concrete classical evaluation, call/frame restoration and backend refinement.
-Unitarity of the complete native profile, general QFT correctness, instrument positivity
-and trace laws, arbitrary-placement/routing refinement, and divergence-sensitive
-semantics remain unproved. There are no `sorry` proofs or new quantum axioms supplying
-these claims.
+The proof modules establish the following kernel-checked results:
+
+| Theorems | Proved scope |
+| --- | --- |
+| `nativeU_factorization`, `nativeProfile_unitary` | Native U including global phase, and all seven primitives of the closed QFT profile, for arbitrary real arguments |
+| `hadamard_nativeRecipe` | H equals native U followed by the required global phase, in the exact real model |
+| `unitary_sequential`, `unitary_adjoint`, `unitary_integerPower` | Closure for arbitrary register sizes |
+| `runtime_angle_half`, `runtimeHalves_exact`, `qft_runtime_phase` | Concrete `Value.binary` divisions starting from the half-turn bit pattern, and their exact dyadic real values under the width bound |
+| `qftSteps_valid`, `qftCore_succ` | All generated gate indices are valid; the outer-loop successor equation holds for every size |
+| `runQFT_iff` | Valid reference gate-sequence execution equals `qftMatrix n` on an arbitrary initial operator, for every size |
+| `qftCorrect_zero`, `qftCorrect_one` | Exact Fourier equality for sizes zero and one |
+| `circuitEval_boundaries`, `routing_compose` | Interpretation derivations preserve declared qubit boundaries; adjacent verified routing maps cancel |
+| `totalCorrect_transfer` | Total correctness transfers when both successful behavior and faults refine the specification |
+
+`QFTCorrect` and `QFTProgramCorrect` remain **unproved obligations**. The general
+Fourier equality, residual Proc-loop simulation, concrete classical evaluation and
+call/frame restoration, and a full refinement theorem for the partial interpreter are
+not yet established. `runQFT_iff` concerns the reference gate-sequence semantics, not
+`Execution.run`; `totalCorrect_transfer` does not supply its own refinement premises.
+The bit-angle proof does not identify the runtime's final Float conversion with an exact
+real angle. Backend approximation, tensor/control unitarity and arbitrary-placement
+refinement, instrument positivity/trace laws, and divergence-sensitive semantics remain
+separate obligations. No `sorry` proofs or new quantum axioms supply these claims.
+
+The standalone audit `lake env lean Tests/Verification.lean` prints the dependencies
+of the main proof results. They use the ordinary Lean foundations (`propext`,
+`Classical.choice`, `Quot.sound`), with no new quantum axioms or admitted proofs.
 
 Regression tests cover exact decimal emission, a representable 64-bit angle that would
 lose low bits through Float, small user-gate angles, and QFT execution and emission for

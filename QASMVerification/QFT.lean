@@ -40,24 +40,25 @@ def QFTRangeSafe (n width indexWidth : Nat) : Prop :=
 
 def qftPhase (distance : Nat) : ℝ := Real.pi / (2 ^ distance : ℝ)
 
-private def bit (x j : Nat) : Nat := (x / 2^j) % 2
+/-- Extract a computational-basis bit; qubit zero is least significant. -/
+def basisBit (x j : Nat) : Nat := (x / 2^j) % 2
 
 /-- A target outside the register is explicitly rejected by the zero operator. -/
 def stepOperator (n : Nat) : QFTStep → Operator n
   | .hadamard j => fun row col =>
-      if j < n ∧ row.val - bit row.val j * 2^j = col.val - bit col.val j * 2^j then
-        hadamard ⟨bit row.val j, Nat.mod_lt _ (by decide)⟩
-          ⟨bit col.val j, Nat.mod_lt _ (by decide)⟩
+      if j < n ∧ row.val - basisBit row.val j * 2^j = col.val - basisBit col.val j * 2^j then
+        hadamard ⟨basisBit row.val j, Nat.mod_lt _ (by decide)⟩
+          ⟨basisBit col.val j, Nat.mod_lt _ (by decide)⟩
       else 0
   | .controlledPhase k j d => fun row col =>
       if k < j ∧ j < n ∧ d = j-k ∧ row = col then
-        if bit col.val k = 1 ∧ bit col.val j = 1 then phase (qftPhase d) else 1
+        if basisBit col.val k = 1 ∧ basisBit col.val j = 1 then phase (qftPhase d) else 1
       else 0
   | .swap j k => fun row col =>
       if j = k then (if j < n ∧ row = col then 1 else 0) else
       if j < n ∧ k < n ∧ row.val =
-          (col.val - bit col.val j * 2^j - bit col.val k * 2^k +
-            bit col.val j * 2^k + bit col.val k * 2^j) % 2^n then 1 else 0
+          (col.val - basisBit col.val j * 2^j - basisBit col.val k * 2^k +
+            basisBit col.val j * 2^k + basisBit col.val k * 2^j) % 2^n then 1 else 0
 
 def qftMatrix (n : Nat) : Operator n :=
   (qftSteps n).foldl (fun acc step => sequential acc (stepOperator n step)) 1

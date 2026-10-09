@@ -1,6 +1,10 @@
     import LiterateLean
     import QASMVerification.Quantum
     import QASMVerification.ExactReal
+    import QASMVerification.AngleRefinement
+    import QASMVerification.QFTLaws
+    import QASMVerification.RefinementLaws
+    import QASMVerification.GateLaws
     import QASMVerification.Program
     import QASMVerification.Native
     import QASMVerification.Instrument
