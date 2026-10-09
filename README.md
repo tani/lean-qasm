@@ -92,6 +92,7 @@ The proof modules establish the following kernel-checked results:
 | `runQFT_iff` | Valid reference gate-sequence execution equals `qftMatrix n` on an arbitrary initial operator, for every size |
 | `qftCorrect_zero`, `qftCorrect_one` | Exact Fourier equality for sizes zero and one |
 | `binary_expansion`, `reverseBits_involution`, `bitReversal` | Binary reconstruction and a verified reversal permutation for every register width |
+| `hadamard_row_action` | Actual Hadamard matrix multiplication reduces to exactly two predecessor basis states for every valid target and arbitrary accumulator |
 | `qft_target_block`, `qft_top_hadamard` | Actual controlled-phase matrix fold reduces to a diagonal block; highest-target H agrees with identity tensor H for every width |
 | `qft_target_phase`, `qftPathAmplitude_reversed_eq_fourier` | The native gate-path weight equals each Fourier component for every size, including normalization and reversal |
 | `proc_simulation`, `proc_lifting` | All structured Proc constructors preserve and lift finite executions from atomic kernel laws |

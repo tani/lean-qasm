@@ -19,6 +19,7 @@ also audited. They do not assert the remaining gate-product or partial-interpret
 #print axioms QASMVerification.qftCorrect_one
 #print axioms QASMVerification.qft_target_block
 #print axioms QASMVerification.qft_top_hadamard
+#print axioms QASMVerification.hadamard_row_action
 #print axioms QASMVerification.reverseBits_involution
 #print axioms QASMVerification.qftPathAmplitude_reversed_eq_fourier
 #print axioms QASMVerification.proc_simulation

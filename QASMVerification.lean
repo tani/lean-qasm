@@ -2,6 +2,7 @@
     import QASMVerification.Quantum
     import QASMVerification.ExactReal
     import QASMVerification.AngleRefinement
+    import QASMVerification.QFTSparseLaws
     import QASMVerification.QFTMatrixLaws
     import QASMVerification.FourierLaws
     import QASMVerification.TraceRefinement
