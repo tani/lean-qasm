@@ -1,6 +1,6 @@
     import LiterateLean
     import QASM.IR.Circuit
-    import QASMVerification.ExactReal
+    import QASMVerification.Semantics.ExactReal
     open scoped LiterateLean
 
 # Checked circuit interpretation

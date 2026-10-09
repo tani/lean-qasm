@@ -1,5 +1,5 @@
     import LiterateLean
-    import QASMVerification.QFTSparseLaws
+    import QASMVerification.QFT.Sparse
     open scoped LiterateLean
 
 # Matrix invariant for the descending QFT core

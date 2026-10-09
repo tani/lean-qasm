@@ -1,5 +1,5 @@
     import LiterateLean
-    import QASMVerification.QFTMatrixLaws
+    import QASMVerification.QFT.Matrix
     open scoped LiterateLean
 
 # Sparse Hadamard transitions on arbitrary targets

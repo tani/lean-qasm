@@ -1,7 +1,7 @@
     import LiterateLean
     import Mathlib.Analysis.SpecialFunctions.Log.Basic
     import QASM.IR.ExactRealExpr
-    import QASMVerification.Quantum
+    import QASMVerification.Semantics.Quantum
     open scoped LiterateLean
 
 # Domain-checked symbolic real evaluation

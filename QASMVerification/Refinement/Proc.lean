@@ -1,5 +1,5 @@
     import LiterateLean
-    import QASMVerification.Program
+    import QASMVerification.Semantics.Program
     open scoped LiterateLean
 
 # Refinement through every structured Proc constructor

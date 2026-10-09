@@ -1,5 +1,5 @@
     import LiterateLean
-    import QASMVerification.ProcRefinement
+    import QASMVerification.Refinement.Proc
     open scoped LiterateLean
 
 # Gate-trace to matrix refinement for structured programs

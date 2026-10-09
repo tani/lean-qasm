@@ -1,6 +1,6 @@
     import LiterateLean
-    import QASMVerification.QFT
-    import QASMVerification.GateLaws
+    import QASMVerification.QFT.Model
+    import QASMVerification.Semantics.Gates
     open scoped LiterateLean
 
 # QFT family invariants and base cases

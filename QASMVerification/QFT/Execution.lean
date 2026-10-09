@@ -1,7 +1,7 @@
     import LiterateLean
-    import QASMVerification.AngleRefinement
-    import QASMVerification.TraceRefinement
-    import QASMVerification.MachineLaws
+    import QASMVerification.QFT.Angles
+    import QASMVerification.Refinement.Trace
+    import QASMVerification.Refinement.Machine
     open scoped LiterateLean
 
 # Exact execution model for residual QFT programs

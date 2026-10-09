@@ -1,6 +1,6 @@
     import LiterateLean
     import QASM.Execution.EffectSemantics
-    import QASMVerification.Circuit
+    import QASMVerification.Semantics.Circuit
     open scoped LiterateLean
 
 # Joint classical and quantum execution contracts

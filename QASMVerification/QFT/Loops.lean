@@ -1,5 +1,5 @@
     import LiterateLean
-    import QASMVerification.QFTExecution
+    import QASMVerification.QFT.Execution
     open scoped LiterateLean
 
 # Residual QFT loop invariants

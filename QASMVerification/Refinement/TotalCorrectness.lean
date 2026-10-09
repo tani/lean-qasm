@@ -1,13 +1,13 @@
     import LiterateLean
-    import QASMVerification.Program
-    import QASMVerification.GateLaws
+    import QASMVerification.Semantics.Program
+    import QASMVerification.Semantics.Gates
     open scoped LiterateLean
 
 # Refinement composition and total-correctness transport
 
 Routing composition cancels the intermediate coordinate map using its proved unitarity.
 Total correctness transfers only when both successful behavior and faults refine the
-specification. RuntimeLaws separately establishes successful finite control refinement
+specification. Refinement.Runtime separately establishes successful finite control refinement
 for the actual Option interpreter; independent atomic semantics, backend accuracy and
 fault freedom are additional premises of this stronger total-correctness transport.
 

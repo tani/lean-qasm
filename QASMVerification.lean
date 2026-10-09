@@ -1,28 +1,14 @@
     import LiterateLean
-    import QASMVerification.Quantum
-    import QASMVerification.ExactReal
-    import QASMVerification.AngleRefinement
-    import QASMVerification.RuntimeLaws
-    import QASMVerification.QFTProgramLaws
-    import QASMVerification.QFTSwapLaws
-    import QASMVerification.QFTSparseLaws
-    import QASMVerification.QFTMatrixLaws
-    import QASMVerification.FourierLaws
-    import QASMVerification.TraceRefinement
-    import QASMVerification.QFTLaws
-    import QASMVerification.RefinementLaws
-    import QASMVerification.GateLaws
-    import QASMVerification.Program
-    import QASMVerification.Native
-    import QASMVerification.Instrument
-    import QASMVerification.Circuit
+    import QASMVerification.Semantics
+    import QASMVerification.Refinement
     import QASMVerification.QFT
     open scoped LiterateLean
 
 # Mathematical verification entry point
 
-Import this library explicitly for mathematical reasoning. The executable QASM library
-has no dependency on these modules. The original QFT gate product equals the normalized
+Import this library explicitly for mathematical reasoning. Its three group entry points
+are QASMVerification.Semantics, QASMVerification.Refinement and QASMVerification.QFT.
+The executable QASM library has no dependency on these modules. The original QFT gate product equals the normalized
 positive-sign Fourier matrix for every register size, including physical swaps. All Proc
 constructors have bidirectional finite-execution refinement through the shared control
 machine. The actual Option interpreter and its public boundary instantiate that theorem.

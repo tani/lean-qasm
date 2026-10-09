@@ -1,5 +1,5 @@
     import LiterateLean
-    import QASMVerification.Quantum
+    import QASMVerification.Semantics.Quantum
     open scoped LiterateLean
 
 # Density matrices and finite instruments

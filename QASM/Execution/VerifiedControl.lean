@@ -11,9 +11,9 @@ represents the absence of a finite successful result; faults and divergence are 
 silently identified with whole-program termination. Conditions and domains carry that
 termination explicitly, together with their resulting store.
 
-The executable interpreter uses the shared frame-based ControlMachine. MachineLaws
+The executable interpreter uses the shared frame-based ControlMachine. Refinement.Machine
 proves that its Option specialization implements this evaluator's declarative model;
-RuntimeLaws instantiates those laws with the actual interpreter callbacks.
+Refinement.Runtime instantiates those laws with the actual interpreter callbacks.
 
 ```lean
 namespace QASM.Execution.VerifiedControl

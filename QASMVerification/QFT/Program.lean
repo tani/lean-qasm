@@ -1,6 +1,6 @@
     import LiterateLean
-    import QASMVerification.QFTLoopLaws
-    import QASMVerification.QFTSwapLaws
+    import QASMVerification.QFT.Loops
+    import QASMVerification.QFT.Swaps
     open scoped LiterateLean
 
 # Total correctness of the residual QFT program

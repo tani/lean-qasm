@@ -7,7 +7,7 @@
 The evaluator and declarative model use the same atomic state-transition kernel.
 The proofs quantify over every Proc, every initial store, and every completion. They
 use the evaluator's proved fixed-point equations, not an assumed program simulation.
-MachineLaws connects the shared frame machine to this model. RuntimeLaws instantiates
+Refinement.Machine connects the shared frame machine to this model. Refinement.Runtime instantiates
 that connection with actual Option interpreter callbacks and the public execution boundary.
 
 ```lean

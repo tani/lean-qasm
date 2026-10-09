@@ -12,8 +12,8 @@ measurement probabilistically or nondeterministically in a subsequent concrete m
 
 This module proves control-flow laws for every model and every process. The richer
 EffectSemantics relation handles termination during expressions and has a separate
-refinement theorem for the actual Option interpreter in QASMVerification.RuntimeLaws. Runtime errors and divergence are deliberately outside this
-successful-execution relation. Equivalence below is therefore finite successful-behavior
+refinement theorem for the actual Option interpreter in QASMVerification.Refinement.Runtime.
+Runtime errors and divergence are deliberately outside this successful-execution relation. Equivalence below is therefore finite successful-behavior
 equivalence, not a termination-sensitive or probabilistic equivalence.
 
 ```lean

@@ -1,5 +1,5 @@
     import LiterateLean
-    import QASMVerification.Native
+    import QASMVerification.Semantics.Native
     import Mathlib.Tactic.Ring
     import Mathlib.Tactic.FinCases
     import Mathlib.Tactic.NormNum

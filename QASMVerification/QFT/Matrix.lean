@@ -1,5 +1,5 @@
     import LiterateLean
-    import QASMVerification.FourierLaws
+    import QASMVerification.QFT.Fourier
     open scoped LiterateLean
 
 # Matrix reduction of the controlled-phase blocks

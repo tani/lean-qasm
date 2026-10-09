@@ -1,6 +1,6 @@
     import LiterateLean
     import QASM.Execution.Interpreter
-    import QASMVerification.MachineLaws
+    import QASMVerification.Refinement.Machine
     open scoped LiterateLean
 
 # Concrete interpreter refinement

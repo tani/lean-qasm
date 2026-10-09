@@ -45,6 +45,19 @@ Runnable examples live under `Examples/`; executable and standalone regression m
 live under `Tests/`. The executable aggregation module is `QASM.lean`. Mathematical reasoning uses the
 separate `QASMVerification.lean` entry point.
 
+Verification modules are grouped by their role:
+
+| Directory | Contents | Group import |
+| --- | --- | --- |
+| `QASMVerification/Semantics/` | Operators, exact reals, native gates, circuit and program semantics, instruments | `QASMVerification.Semantics` |
+| `QASMVerification/Refinement/` | Proc simulation, control machine and runtime refinement, traces, total-correctness transport | `QASMVerification.Refinement` |
+| `QASMVerification/QFT/` | QFT model, exact angles, Fourier and matrix proofs, residual-loop total correctness | `QASMVerification.QFT` |
+
+Use a group entry point for its complete API, or a leaf module such as
+`QASMVerification.QFT.Program` for a specific proof. `import QASMVerification`
+continues to load the complete verification library. Declaration and theorem names
+are unchanged; direct leaf imports now use the paths above.
+
 
 ## Quantum semantics and QFT definitions
 

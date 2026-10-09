@@ -1,5 +1,5 @@
     import LiterateLean
-    import QASMVerification.Circuit
+    import QASMVerification.Semantics.Circuit
     open scoped LiterateLean
 
 # Native primitive equations for the QFT fragment

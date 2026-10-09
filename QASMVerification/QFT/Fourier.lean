@@ -1,5 +1,5 @@
     import LiterateLean
-    import QASMVerification.QFTLaws
+    import QASMVerification.QFT.Reference
     open scoped LiterateLean
 
 # Binary factorization of the Fourier matrix

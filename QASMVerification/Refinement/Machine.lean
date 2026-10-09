@@ -1,6 +1,6 @@
     import LiterateLean
     import QASM.Execution.ControlMachine
-    import QASMVerification.ControlLaws
+    import QASMVerification.Refinement.Control
     open scoped LiterateLean
 
 # Refinement of the shared control machine
@@ -9,7 +9,7 @@ The same finite transition function drives the backend interpreter and its deter
 Option specialization. Pending frames are interpreted as continuations of the declarative
 semantics. The theorem allows failing atomic callbacks and proves both directions for
 every successful finite result. Atomic operations may only complete normally or end
-the program; RuntimeLaws discharges this restriction for the actual interpreter.
+the program; Refinement.Runtime discharges this restriction for the actual interpreter.
 
 ```lean
 namespace QASMVerification
@@ -422,7 +422,7 @@ private theorem drive_complete (raw : Kernel Option State Error)
 
 The driver returns a successful finite result exactly when the declarative graph model
 has that execution. The only atomic restriction is the allowed operation completion;
-the actual runtime constructor proves that restriction in RuntimeLaws.
+the actual runtime constructor proves that restriction in Refinement.Runtime.
 
 ```lean
 theorem machine_proc_refinement_iff (raw : Kernel Option State Error)

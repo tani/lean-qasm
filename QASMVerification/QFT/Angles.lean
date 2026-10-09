@@ -1,6 +1,6 @@
     import LiterateLean
     import QASM.Runtime
-    import QASMVerification.QFT
+    import QASMVerification.QFT.Model
     import Mathlib.Tactic.NormNum
     import Mathlib.Tactic.Ring
     open scoped LiterateLean

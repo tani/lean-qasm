@@ -1,5 +1,5 @@
     import LiterateLean
-    import QASMVerification.QFTCoreLaws
+    import QASMVerification.QFT.Core
     open scoped LiterateLean
 
 # Physical swap matrices and bit reversal
