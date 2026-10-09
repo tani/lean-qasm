@@ -2,6 +2,7 @@
     import QASM.IR.Source
     import QASM.IR.Name
     import QASM.IR.Type
+    import QASM.IR.NumericLiteral
     open scoped LiterateLean
 
 # Resolved expressions and variables
@@ -46,7 +47,8 @@ inductive Builtin
 
 ## Typed expression trees
 
-Literal nodes carry semantic values rather than source spellings. Size and integer
+Literal nodes retain exact decimal values and named real constants. Legacy binary
+float literals remain distinguishable from those exact values. Size and integer
 representation parameters default to `Nat` and `Int`; compilation templates temporarily
 use symbolic values, then quotation emits the concrete constructors with open Lean terms. Variable, constant, and
 subroutine references use their dedicated stable IDs; casts store the resolved target
@@ -62,6 +64,9 @@ structure Expr (size : Type := Nat) (integer : Type := Int) where
 inductive ExprNode (size : Type := Nat) (integer : Type := Int) where
   | intLit         (value : integer)
   | floatLit       (value : Float)
+  | decimalLit     (value : DecimalLiteral)
+  | realConstant   (value : RealConstant)
+  | imaginaryDecimalLit (value : DecimalLiteral)
   | imaginaryLit   (value : Float)
   | boolLit        (value : Bool)
   | bitstringLit   (bits : Array Bool)

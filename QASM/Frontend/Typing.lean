@@ -56,6 +56,7 @@ inductive ResolvedScalar where
   | uint (width : Size)
   | float (width : Size)
   | angle (width : Size)
+  | gateAngle
   | boolean
   | complex (width : Size)
   | duration
@@ -418,13 +419,14 @@ private def scalarOf : ResolvedType → Option ResolvedScalar
   | _ => none
 
 private def isNumeric : ResolvedScalar → Bool
-  | .bit _ | .sint _ | .uint _ | .float _ | .angle _ | .complex _ | .duration => true
+  | .bit _ | .sint _ | .uint _ | .float _ | .angle _ | .gateAngle | .complex _ | .duration => true
   | _ => false
 
 private def promotedNumeric (left right : ResolvedScalar) : ResolvedScalar :=
   match left, right with
   | .duration, _ | _, .duration => .duration
   | .complex width, _ | _, .complex width => .complex width
+  | .gateAngle, _ | _, .gateAngle => .gateAngle
   | .float width, _ | _, .float width => .float width
   | .angle width, _ | _, .angle width => .angle width
   | .sint width, _ | _, .sint width => .sint width
@@ -1060,7 +1062,7 @@ def analyzeTypes (target : TargetConfig) (program : Program) (familyParameters :
             if familyParameters.contains parameter then
               throw (diagnostic "a gate argument cannot shadow a Lean family parameter")
             localScopes ← addBinding localScopes ⟨parameter,
-              .scalar (.angle (target.angleWidth : Size)), false⟩
+              .scalar .gateAngle, false⟩
           for qubit in qubits do
             if familyParameters.contains qubit then
               throw (diagnostic "a gate qubit cannot shadow a Lean family parameter")

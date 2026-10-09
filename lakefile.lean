@@ -9,9 +9,15 @@ require LiterateLean from git
 
 require "leanprover-community" / "proofwidgets" @ git "v0.0.105"
 
+require mathlib from git
+  "https://github.com/leanprover-community/mathlib4.git" @ "v4.32.0"
+
 @[default_target]
 lean_lib QASM where
   roots := #[`QASM]
+
+lean_lib QASMVerification where
+  roots := #[`QASMVerification]
 
 lean_lib QASMTestSupport where
   roots := #[`Tests.Parametric, `Tests.Regression]

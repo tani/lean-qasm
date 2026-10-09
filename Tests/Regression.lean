@@ -218,12 +218,53 @@ private def testEmission : IO Unit := do
   assertTrue (before.applied.map unitaryKey == after.applied.map unitaryKey)
     "emission distributed a compound power or lost its captured parameters"
 
+private def testExactSyntax : IO Unit := do
+  let .ok literal := IR.DecimalLiteral.parse "0.10000000000000000000000000000000000001"
+    | throw (IO.userError "exact decimal rejected")
+  assertTrue (literal.significand == 10000000000000000000000000000000000001 &&
+      literal.exponent10 == -38) "decimal was rounded before lowering"
+  let program ← lower "OPENQASM 3.0; output float[64] result; result = 0.10000000000000000000000000000000000001;"
+  assertTrue (((toString program).splitOn literal.toQasm).length > 1)
+    "canonical emission lost exact digits"
+  let program ← lower "OPENQASM 3.0; output angle[64] result; result = pi + pi / 4611686018427387904;"
+  let (values, _) ← execute program
+  assertTrue (output program values == .angle 64 (2^63 + 2))
+    "exact representable angle was rounded through Float"
+  let reparsed ← lower (toString program)
+  let (values, _) ← execute reparsed
+  assertTrue (output reparsed values == .angle 64 (2^63 + 2))
+    "exact angle changed after emission"
+  let finite ← lower "OPENQASM 3.0; output angle[64] result; result = float[64](pi + pi / 4611686018427387904);"
+  let (finiteValues, _) ← execute finite
+  assertTrue (output finite finiteValues == .angle 64 (2^63))
+    "an explicit finite-precision cast was reinterpreted symbolically"
+  let program ← lower "OPENQASM 3.0; gate rotate(theta) q { U(theta,0,0) q; } qubit q; rotate(1e-20) q;"
+  assertTrue (program.gates[0]!.parameters[0]!.type == .scalar .gateAngle)
+    "gate parameter was assigned a fixed precision"
+  let (_, trace) ← execute program
+  assertTrue (trace.applied.any fun operation => match operation with
+    | .U theta _ _ _ => theta > 0 && theta < 1e-19
+    | _ => false) "small gate angle was quantized to zero"
+
+private def testQFTLoops : IO Unit := do
+  for n in List.range 7 do
+    let program := IR.QFT.canonical n
+    let (_, trace) ← execute program
+    let expected := n + n*(n-1)/2 + n/2
+    assertTrue (trace.applied.size == expected) s!"QFT gate count incorrect at {n}"
+    let reparsed ← lower (toString program)
+    let (_, emittedTrace) ← execute reparsed
+    assertTrue (trace.applied.map unitaryKey == emittedTrace.applied.map unitaryKey)
+      s!"QFT loops or dyadic angles changed after emission at {n}"
+
 def run : IO Unit := do
   testOutputs
   testCalls
   testBoundaries
   testFrontend
   testEmission
+  testExactSyntax
+  testQFTLoops
 
 end QASMTests.Regression
 ```

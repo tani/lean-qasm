@@ -198,6 +198,9 @@ private partial def expressionLabel (names : Std.HashMap VarId String) (value : 
   match value.node with
   | .intLit value => toString value
   | .floatLit value => toString value
+  | .decimalLit value => value.toQasm
+  | .realConstant value => value.toQasm
+  | .imaginaryDecimalLit value => value.toQasm ++ "im"
   | .boolLit true => "true"
   | .boolLit false => "false"
   | .var id => names[id]?.getD s!"var{id.value}"

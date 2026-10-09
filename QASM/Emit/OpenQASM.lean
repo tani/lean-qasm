@@ -118,6 +118,7 @@ private def scalarType : ScalarTy → String
   | .uint width => s!"uint[{width}]"
   | .float width => s!"float[{width}]"
   | .angle width => s!"angle[{width}]"
+  | .gateAngle => "angle"
   | .boolean => "bool"
   | .complex width => s!"complex[float[{width}]]"
   | .duration => "duration"
@@ -229,6 +230,9 @@ private partial def expr (context : Context) (value : Expr) : String :=
   match value.node with
   | .intLit literal => toString literal
   | .floatLit literal => float literal
+  | .decimalLit literal => literal.toQasm
+  | .realConstant literal => literal.toQasm
+  | .imaginaryDecimalLit literal => literal.toQasm ++ "im"
   | .imaginaryLit literal => float literal ++ "im"
   | .boolLit true => "true"
   | .boolLit false => "false"

@@ -49,6 +49,8 @@ deriving instance ToExpr for QASM.IR.WirePermutation
 deriving instance ToExpr for QASM.IR.UnaryOp
 deriving instance ToExpr for QASM.IR.BinaryOp
 deriving instance ToExpr for QASM.IR.Builtin
+deriving instance ToExpr for QASM.IR.RealConstant
+deriving instance ToExpr for QASM.IR.DecimalLiteral
 deriving instance ToExpr for QASM.IR.Expr, QASM.IR.ExprNode
 deriving instance ToExpr for QASM.IR.Var
 deriving instance ToExpr for QASM.IR.LValue

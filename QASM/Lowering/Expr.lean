@@ -115,9 +115,9 @@ private def builtin : String → Option QASM.IR.Builtin
   | _ => none
 
 private def namedConstant? (target : QASM.TargetConfig) : String → Option (QASM.IR.Expr Size Integer)
-  | "pi" | "π" => some { type := .scalar (.float (target.floatWidth : Size)), node := .floatLit 3.141592653589793 }
-  | "tau" | "τ" => some { type := .scalar (.float (target.floatWidth : Size)), node := .floatLit 6.283185307179586 }
-  | "euler" | "ℇ" => some { type := .scalar (.float (target.floatWidth : Size)), node := .floatLit 2.718281828459045 }
+  | "pi" | "π" => some { type := .scalar (.float (target.floatWidth : Size)), node := .realConstant .pi }
+  | "tau" | "τ" => some { type := .scalar (.float (target.floatWidth : Size)), node := .realConstant .tau }
+  | "euler" | "ℇ" => some { type := .scalar (.float (target.floatWidth : Size)), node := .realConstant .euler }
   | _ => none
 
 ```
@@ -140,9 +140,14 @@ partial def expression (source : QASM.Frontend.Expression) : LowerM (QASM.IR.Exp
   let node ← match source with
     | .literal (.integer raw) =>
         pure (.intLit (.literal (QASM.Value.integerLiteral raw |>.asInt)))
-    | .literal (.float raw) => pure (.floatLit (← parseFloat raw))
+    | .literal (.float raw) =>
+        match QASM.IR.DecimalLiteral.parse raw with
+        | .ok literal => pure (.decimalLit literal)
+        | .error message => throw (diagnostic message)
     | .literal (.imaginary raw) =>
-        pure (.imaginaryLit (← parseFloat (raw.dropEnd 2 |>.trimAscii |>.toString)))
+        match QASM.IR.DecimalLiteral.parse (raw.dropEnd 2 |>.trimAscii |>.toString) with
+        | .ok literal => pure (.imaginaryDecimalLit literal)
+        | .error message => throw (diagnostic message)
     | .literal (.boolean value) => pure (.boolLit value)
     | .literal (.bitstring raw) =>
         pure (.bitstringLit (raw.toList.filterMap (fun char =>

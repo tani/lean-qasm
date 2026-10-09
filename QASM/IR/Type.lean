@@ -31,6 +31,7 @@ inductive ScalarTy (size : Type := Nat) where
   | uint (width : size)
   | float (width : size)
   | angle (width : size)
+  | gateAngle
   | boolean
   | complex (width : size)
   | duration

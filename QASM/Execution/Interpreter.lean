@@ -154,6 +154,7 @@ private def scalarNameWidth : ScalarTy → String × Nat
   | .uint width => ("uint", width)
   | .float width => ("float", width)
   | .angle width => ("angle", width)
+  | .gateAngle => ("float", 64)
   | .boolean => ("bool", 1)
   | .complex width => ("complex", width)
   | .duration => ("duration", 64)
@@ -185,6 +186,7 @@ private def defaultScalar : ScalarTy → QASM.Value
   | .float 32 => .float32 0
   | .float _ => .float 0
   | .angle width => .angle width 0
+  | .gateAngle => .float 0.0
   | .boolean => .boolean false
   | .complex 32 => .complex32 0 0
   | .complex _ => .complex 0 0
@@ -288,6 +290,48 @@ private partial def updateTarget (value : QASM.Value) (groups : Array (Array QAS
 private inductive CapturedArgument (qubit : Type) where
   | value (value : QASM.Value) (writeback : Option CapturedTarget := none)
   | quantum (wires : Array qubit)
+
+/-- Only representable rational multiples of pi bypass floating-point conversion.
+    Other expressions retain the existing finite classical evaluation. -/
+private def piCoefficient (fuel : Nat) (value : Expr) : Option Rat :=
+  match fuel with
+  | 0 => none
+  | fuel + 1 => match value.node with
+    | .realConstant .pi => some 1
+    | .realConstant .tau => some 2
+    | .intLit 0 => some 0
+    | .unary .neg a => (- ·) <$> piCoefficient fuel a
+    | .binary .add a b => do return (← piCoefficient fuel a) + (← piCoefficient fuel b)
+    | .binary .sub a b => do return (← piCoefficient fuel a) - (← piCoefficient fuel b)
+    | .binary .div a b => do
+        let coefficient ← piCoefficient fuel a
+        match b.node with
+        | .intLit i =>
+          let i := (castValue b.type (.integer i)).asInt
+          if i = 0 then none else some (coefficient / (i : Rat))
+        | _ => none
+    | .binary .mul a b =>
+        match a.node, b.node with
+        | .intLit i, _ => (((castValue a.type (.integer i)).asInt : Rat) * ·) <$> piCoefficient fuel b
+        | _, .intLit i => (· * ((castValue b.type (.integer i)).asInt : Rat)) <$> piCoefficient fuel a
+        | _, _ => none
+    | _ => none
+
+private def exactAngle? (target : QASM.IR.Type) (value : Expr) : Option QASM.Value := do
+  let .scalar (.angle width) := target | none
+  let coefficient ← piCoefficient 1024 value
+  let scaled : Rat := coefficient * ((2 ^ width : Nat) : Rat) / 2
+  if scaled.den ≠ 1 then none
+  else some (.angle width (scaled.num % (Int.ofNat (2 ^ width))).toNat)
+
+private def decimalApproximation (literal : DecimalLiteral) : Except String Float := do
+  let json ← Lean.Json.parse literal.toQasm
+  Float.fromJson? json
+
+private def constantApproximation : RealConstant → Float
+  | .pi => 3.141592653589793
+  | .tau => 6.283185307179586
+  | .euler => 2.718281828459045
 ```
 
 ## The recursive interpreter
@@ -318,6 +362,16 @@ mutual
     match value.node with
     | .intLit literal => pure (castValue value.type (.integer literal))
     | .floatLit literal => pure (castValue value.type (.float literal))
+    | .decimalLit literal =>
+        match decimalApproximation literal with
+        | .ok literal => pure (castValue value.type (.float literal))
+        | .error message => fail (.internal message)
+    | .realConstant literal =>
+        pure (castValue value.type (.float (constantApproximation literal)))
+    | .imaginaryDecimalLit literal =>
+        match decimalApproximation literal with
+        | .ok literal => pure (castValue value.type (.complex 0 literal))
+        | .error message => fail (.internal message)
     | .imaginaryLit literal => pure (castValue value.type (.complex 0 literal))
     | .boolLit literal => pure (castValue value.type (.boolean literal))
     | .bitstringLit bits => pure (castValue value.type (.bits bits))
@@ -329,7 +383,7 @@ mutual
         | none => fail (.internal s!"unknown variable {id.value}")
     | .const id =>
         match program.constants.find? (·.id == id) with
-        | some declaration => castValue declaration.type <$> evalExpr program declaration.value
+        | some declaration => evalTypedExpr program declaration.type declaration.value
         | none => fail (.internal s!"unknown constant {id.value}")
     | .unary operator operand =>
         pure (QASM.Value.unary (unaryName operator) (← evalExpr program operand))
@@ -354,7 +408,7 @@ mutual
           | .ok argument => pure argument
           | .error error => fail error
         invokeSubroutine program callee arguments
-    | .cast target value => pure (castValue target (← evalExpr program value))
+    | .cast target value => evalTypedExpr program target value
     | .index value indices =>
         pure (QASM.Value.index (← evalExpr program value) (← indices.mapM (evalExpr program)))
     | .range start step stop =>
@@ -365,6 +419,11 @@ mutual
           (step.getD (.integer 1)) (stop.getD (.integer 0))))
     | .set values | .array values => .array <$> values.mapM (evalExpr program)
     | .unsupported _ detail => fail (.internal detail)
+
+  private partial def evalTypedExpr [Monad m] [QASM.QuantumBackend m qubit backendError]
+      (program : Program) (target : QASM.IR.Type) (expression : Expr) : ExecM m qubit backendError QASM.Value := do
+    let value ← evalExpr program expression
+    pure ((exactAngle? target expression).getD (castValue target value))
 
   private partial def captureTarget [Monad m] [QASM.QuantumBackend m qubit backendError]
       (program : Program) (target : LValue) : ExecM m qubit backendError CapturedTarget := do
@@ -605,11 +664,11 @@ mutual
           | none => fail (.internal s!"qubit variable '{var.name}' requires allocation or an alias")
         else
           let value ← match initializer with
-            | some value => castValue var.type <$> evalExpr program value
+            | some value => evalTypedExpr program var.type value
             | none => pure (defaultValue var.type)
           modify fun state => { state with values := state.values.insert var.id value }
         pure .next
-    | .assign target value => assignLValue program target (← evalExpr program value) *> pure .next
+    | .assign target value => assignLValue program target (← evalTypedExpr program target.type value) *> pure .next
     | .apply gate operands => applyCircuitRef program gate operands *> pure .next
     | .measure source target =>
         let qubits ← evalQuantumOperand program source

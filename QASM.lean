@@ -3,9 +3,12 @@
     import QASM.Runtime.TraceBackend
     import QASM.Diagram
     import QASM.IR.Program
+    import QASM.IR.QFT
+    import QASM.IR.ExactRealExpr
     import QASM.IR.Substitution
     import QASM.IR.Equiv
     import QASM.Execution.Interpreter
+    import QASM.Execution.EffectSemantics
     import QASM.Execution.Semantics
     import QASM.Diagram.ProgramHtmlEval
     import QASM.Emit

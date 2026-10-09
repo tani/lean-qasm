@@ -85,7 +85,7 @@ def ioDeclaration (name : String) (type : QASM.Frontend.TypeSpec)
 
 ## Pure gate declarations
 
-A gate body is lowered in an isolated scope whose parameters are target-width angles and
+A gate body is lowered in an isolated scope whose parameters have unspecified gate precision and
 whose qubit parameters occupy known wire positions. The resulting declaration stores a
 pure categorical `Circuit`; restoring the outer scopes afterward prevents gate-local
 bindings from leaking into the compilation unit.
@@ -103,7 +103,7 @@ def gateDeclaration (name : String) (parameterNames qubitNames : Array String)
   replaceScopes [[]]
   modify fun context => { context with localConstants := [] }
   let parameterType : QASM.Frontend.ResolvedType :=
-    .scalar (.angle outer.options.target.angleWidth)
+    .scalar .gateAngle
   let mut parameters := #[]
   for parameter in parameterNames do
     let binding ← freshBinding parameter parameterType false

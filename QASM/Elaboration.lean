@@ -103,6 +103,7 @@ private def irScalarLeanType : QASM.IR.ScalarTy Size → Except String String
   | .float ⟨.literal 64⟩ => pure "Float"
   | .float width => throw s!"cannot emit float[{width}]"
   | .angle width => pure s!"QASM.Angle ({width.leanCode})"
+  | .gateAngle => throw "gate parameters cannot appear in classical I/O structures"
   | .boolean => pure "Bool"
   | .complex width => pure s!"QASM.ComplexN ({width.leanCode})"
   | .duration => pure "QASM.Duration"

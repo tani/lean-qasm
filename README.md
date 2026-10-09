@@ -42,8 +42,57 @@ they extend:
   `QASM/Elaboration.lean` coordinates the complete compile-time pipeline.
 
 Runnable examples live under `Examples/`; executable and standalone regression modules
-live under `Tests/`. The top-level `QASM.lean` remains the only public aggregation module.
+live under `Tests/`. The executable aggregation module is `QASM.lean`. Mathematical reasoning uses the
+separate `QASMVerification.lean` entry point.
 
+
+## Quantum semantics and QFT definitions
+
+`import QASMVerification` adds the Mathlib-based mathematical layer; `import QASM`
+continues to use the executable library alone. Build the verification target explicitly:
+
+```sh
+lake build QASM QASMVerification lean_qasm_tests
+lake test
+```
+
+The IR preserves decimal significands, decimal exponents, and named real constants.
+Ordinary classical calculations remain finite-precision calculations. A symbolic gate
+profile may extract `ExactRealExpr`; it rejects explicit casts, machine float literals,
+and effectful calls. Gate formal arguments use `ScalarTy.gateAngle` rather than an
+implicitly chosen `angle[64]`. The current runtime approximates those arguments using
+Float; this adapter is not an exact mathematical interpretation.
+
+| Definition | Contract |
+| --- | --- |
+| `RealEval` | Domain-checked symbolic reals with a supplied typed integer evaluator |
+| `CircuitEval` | Checked qubit boundaries, composition, tensor, routing, adjoints, integer powers and controls |
+| `NativePrimitive` | Actual U, gphase, H, P, CP, identity and SWAP matrices; other recipes require expansion |
+| `EffectSemantics.Exec` | Finite successful execution, including `end` during expression evaluation |
+| `JointState`, `TotalUnitaryCorrect` | Classical store, handle bindings, unitary action and total-correctness contract |
+| `WellFormedCircuit` | Circuit with an interpretation derivation and unitarity proof |
+| `Instrument` | Finite Kraus lists and an explicit completeness proof |
+| `IR.QFT.body` | Transformation of an already-bound register, with residual descending loops and final swaps |
+| `IR.QFT.canonical` | Allocation plus QFT, width `max 3 n`, index width `n + 2`; size zero is empty |
+| `qftMatrix`, `fourier` | Little-endian gate-family interpretation and positive-sign Fourier matrix |
+
+Composition executes its left child first; tensor puts its left child on low bits.
+Routing permutations describe coordinate changes, while SWAP is a physical operation.
+The native U definition preserves its global phase, including under control.
+
+The kernel checks composition identity and associativity, empty-family equations, and
+`canonical_range_safe` for every `n`. `QFTCorrect` and `QFTProgramCorrect` are **proof
+obligations**, not established theorems. The latter requires successful execution,
+agreement of every successful result, and absence of faults. The callback models still
+need concrete classical evaluation, call/frame restoration and backend refinement.
+Unitarity of the complete native profile, general QFT correctness, instrument positivity
+and trace laws, arbitrary-placement/routing refinement, and divergence-sensitive
+semantics remain unproved. There are no `sorry` proofs or new quantum axioms supplying
+these claims.
+
+Regression tests cover exact decimal emission, a representable 64-bit angle that would
+lose low bits through Float, small user-gate angles, and QFT execution and emission for
+sizes zero through six. These finite checks do not prove the general Fourier equality.
 
 ## The `qasm!` interface
 

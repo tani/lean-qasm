@@ -121,6 +121,7 @@ def scalarType : QASM.Frontend.ResolvedScalar → (QASM.IR.ScalarTy Size)
   | .uint width => .uint width
   | .float width => .float width
   | .angle width => .angle width
+  | .gateAngle => .gateAngle
   | .boolean => .boolean
   | .complex width => .complex width
   | .duration => .duration

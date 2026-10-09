@@ -23,6 +23,7 @@ def ScalarTy.map (f : s → t) : ScalarTy s → ScalarTy t
   | .uint width => .uint (f width)
   | .float width => .float (f width)
   | .angle width => .angle (f width)
+  | .gateAngle => .gateAngle
   | .boolean => .boolean
   | .complex width => .complex (f width)
   | .duration => .duration
@@ -44,6 +45,9 @@ mutual
   def ExprNode.map (f : s → t) (g : i → j) : ExprNode s i → ExprNode t j
     | .intLit value => .intLit (g value)
     | .floatLit value => .floatLit value
+    | .decimalLit value => .decimalLit value
+    | .realConstant value => .realConstant value
+    | .imaginaryDecimalLit value => .imaginaryDecimalLit value
     | .imaginaryLit value => .imaginaryLit value
     | .boolLit value => .boolLit value
     | .bitstringLit value => .bitstringLit value

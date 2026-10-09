@@ -92,6 +92,9 @@ mutual
     match node with
     | .intLit value => pure (.intLit value)
     | .floatLit value => pure (.floatLit value)
+    | .decimalLit value => pure (.decimalLit value)
+    | .realConstant value => pure (.realConstant value)
+    | .imaginaryDecimalLit value => pure (.imaginaryDecimalLit value)
     | .imaginaryLit value => pure (.imaginaryLit value)
     | .boolLit value => pure (.boolLit value)
     | .bitstringLit value => pure (.bitstringLit value)
