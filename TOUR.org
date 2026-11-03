@@ -194,6 +194,10 @@ The running example uses the generated =Bell.execute= wrapper with =TraceBackend
 
 The same =Bell.program= can be passed to =#html= for a static diagram. Diagram generation shows the source structure; execution chooses paths according to inputs and the backend's measurement results.
 
+[[file:docs/tour/bell.svg]]
+
+This SVG is generated in Lean from =(QASM.Diagram.ofProgram Bell.program).toHtml=, the same renderer used by =#html Bell.program=. It shows the Hadamard gate followed by controlled X on =q[0]= and =q[1]=. To regenerate it, run =Examples/ExportTour.lean= after compiling =Examples/Bell.lean= (see the exporter for commands).
+
 The trace records requested operations and supplied outcomes. It does not compute the Bell state vector. This example establishes a concrete user workflow before we define what a proof about that program would mean.
 
 * Semantics.Model: supplying a mathematical meaning.
