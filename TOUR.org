@@ -1,405 +1,370 @@
-#+TITLE: Lean QASM — Code Tour
+#+TITLE: LeanQASM — Executable Quantum Programs and Explicit Proof Boundaries
 #+REPOSITORY: tani/lean-qasm
+#+PRESENTATION_MINUTES: 30
+#+MAIN_PAGES: 18
+#+OPTIONAL_APPENDIX_PAGES: 4
+#+FORMAT: 30-minute presentation followed by discussion and an optional demo
 
-* A guided reading of Lean QASM.
+* Quantum programs as Lean data.
 :PROPERTIES:
-:CHAPTER: 00 / INTRODUCTION
-:KICKER: WELCOME TO THE CODE
+:CHAPTER: 01 / THE IDEA
+:KICKER: 00:00–01:30
+:DURATION_SECONDS: 90
+:PRESENTER_NOTE: Open with the software/research problem. Assume familiarity with quantum computing; introduce Lean only as a programming language plus a kernel-checked proof system.
 :END:
-An OpenQASM program can be parsed, checked, represented, executed, and inspected inside Lean. This tour follows how =tani/lean-qasm= connects those pieces.
+LeanQASM embeds an OpenQASM 3.0 frontend in Lean 4. It turns accepted source into a program that can be executed, inspected, and used in propositions.
 
-Start with a small Bell circuit, then move inward through typed expressions, categorical circuit structure, structured processes, and compilation. Finally, follow the shared IR back out to execution and presentation.
+The research goal is to connect a familiar quantum programming language with a proof assistant, while keeping the contracts between compilation, execution, and reasoning visible.
 
-Thirty source-focused stops sit between this introduction and the closing perspective. Read at your own pace; each stop highlights one part of the design.
+Today: one runnable example, the key design choices, the evidence already in the repository, and a concrete discussion of AI-assisted quantum software.
 
-* One program. Several perspectives.
+* The question is what each layer establishes.
 :PROPERTIES:
-:CHAPTER: 00 / INTRODUCTION
-:KICKER: HOW TO READ THIS TOUR
+:CHAPTER: 01 / THE IDEA
+:KICKER: 01:30–02:30
+:DURATION_SECONDS: 60
+:PRESENTER_NOTE: Use this map throughout. Describe the proof branch as selected laws over the IR, not a verified compiler pipeline.
 :END:
-On source pages, the code pane shows the selected lines in color and nearby context in gray. The explanation describes what to notice and how that choice connects to the next layer.
-
-Use the arrow keys, the navigation buttons, or a tap in the explanation to move. The contents menu and progress markers jump directly to a section. Click the code to open the exact range on GitHub.
-
-The tour follows one pinned revision so its explanations and line ranges stay aligned. Introduction and summary pages use the full reading area. Mermaid diagrams and LaTeX equations are rendered alongside the prose.
-
-* Start with a single import.
-:PROPERTIES:
-:FILE: QASM.lean
-:LINES: 1-15
-:CHAPTER: 01 / FIRST CONTACT
-:KICKER: THE PUBLIC API
-:END:
-=import QASM= is the public entry point. It exposes runtime support, canonical IR, parsing, type checking, visualization, and Lean elaboration through their owning modules.
-
-We will begin with a small Bell circuit, then follow the representations and transformations behind it. The entry point re-exports the original namespaces rather than introducing a second facade API.
-
-* Declare a Bell circuit.
-:PROPERTIES:
-:FILE: Examples/Bell.lean
-:LINES: 38-47
-:CHAPTER: 01 / FIRST CONTACT
-:KICKER: A SMALL QUANTUM PROGRAM
-:END:
-Write OpenQASM directly inside =qasm! Bell=. This example allocates two qubits, applies =h= to the first, then uses =cx= to entangle the pair.
-
-The =using= clause specifies target widths and the dialect. This declaration connects to IR generation, static inspection, and execution through the generated Lean API.
-
-The intended Bell state is shown below; this example does not itself compute the state vector.
-
-\[
-|\Phi^+\rangle=\mathrm{CNOT}(H\otimes I)|00\rangle
-=\frac{|00\rangle+|11\rangle}{\sqrt{2}}.
-\]
-
-#+begin_src mermaid
-flowchart LR
-    q0["q[0]: |0>"] --> H --> Control["control"]
-    q1["q[1]: |0>"] --> Target["X target"]
-    Control --> Target
-#+end_src
-
-
-* Inspect without executing.
-:PROPERTIES:
-:FILE: Examples/Bell.lean
-:LINES: 56-56
-:CHAPTER: 01 / FIRST CONTACT
-:KICKER: INSPECTION WITHOUT EXECUTION
-:END:
-=#html Bell.program= derives a static circuit diagram from the declared IR. It does not allocate qubits or execute gates.
-
-Separating a program as data from its execution allows visualization, emission, and interpretation to share one representation.
-
-* Record the effects first.
-:PROPERTIES:
-:FILE: Examples/Bell.lean
-:LINES: 67-71
-:CHAPTER: 01 / FIRST CONTACT
-:KICKER: DETERMINISTIC TRACE
-:END:
-Running =Bell.execute= with =TraceBackend.M= records deterministic backend effects. The final =#eval= inspects the allocated qubits.
-
-This is not state-vector simulation. It checks the operations requested by the circuit independently of a particular simulator or quantum device.
-
-* Make types explicit data.
-:PROPERTIES:
-:FILE: QASM/IR/Type.lean
-:LINES: 28-40
-:CHAPTER: 02 / THE REPRESENTATION
-:KICKER: SCALAR TYPES
-:END:
-=ScalarTy= represents resolved scalar types: signed integers, angles, complex values, qubits, and more, together with their widths or counts.
-
-The =size= parameter defaults to =Nat= but remains abstract in the grammar. The same representation can therefore express concrete sizes and symbolic compilation sizes.
-
-* Distinguish arrays from references.
-:PROPERTIES:
-:FILE: QASM/IR/Type.lean
-:LINES: 42-46
-:CHAPTER: 02 / THE REPRESENTATION
-:KICKER: SHAPES AND REFERENCES
-:END:
-IR =Type= separates scalars, arrays, and array references. Arrays carry their shape; references additionally record mutability, rank, and an optional known shape.
-
-=Option (Array size)= expresses an unknown extent without confusing it with a scalar. Each downstream consumer receives the distinctions it needs.
-
-* An expression has a type and an origin.
-:PROPERTIES:
-:FILE: QASM/IR/Expr.lean
-:LINES: 57-61
-:CHAPTER: 02 / THE REPRESENTATION
-:KICKER: TYPED EXPRESSIONS
-:END:
-=Expr= combines a resolved type, an expression node, and a source span. The IR carries analysis results rather than just the shape of the source syntax.
-
-Keeping =SourceSpan= makes it possible to trace the compiled representation back to its source and supports meaningful diagnostics.
-
-* Represent the structure of computation.
-:PROPERTIES:
-:FILE: QASM/IR/Expr.lean
-:LINES: 62-80
-:CHAPTER: 02 / THE REPRESENTATION
-:KICKER: EXPRESSION NODES
-:END:
-=ExprNode= distinguishes literals, variables, unary and binary operators, calls, casts, and indexing. Child expressions are themselves typed =Expr= values.
-
-An explicit =unsupported= constructor retains the capability and diagnostic detail instead of silently discarding a feature that a consumer cannot handle.
-
-* Give primitive gates a boundary.
-:PROPERTIES:
-:FILE: QASM/IR/Primitive.lean
-:LINES: 32-46
-:CHAPTER: 02 / THE REPRESENTATION
-:KICKER: ATOMIC CIRCUITS
-:END:
-=PrimitiveKind= identifies a primitive circuit. =Primitive= combines its identity and parameters with explicit input and output interfaces.
-
-A gate is more than a string in an instruction list: its circuit boundary is available as structured data.
-
-* Keep composition and tensor distinct.
-:PROPERTIES:
-:FILE: QASM/IR/Circuit.lean
-:LINES: 33-40
-:CHAPTER: 03 / CIRCUIT & CONTROL
-:KICKER: CATEGORICAL STRUCTURE
-:END:
-=Circuit= includes identity, primitives, sequential composition =compose=, and parallel composition =tensor=. Permutations and inverses are distinct nodes too.
-
-The representation retains circuit structure instead of immediately flattening everything into a gate list. Consumers can read the difference between sequencing and parallel placement directly.
-
-* Modifiers wrap a circuit.
-:PROPERTIES:
-:FILE: QASM/IR/Circuit.lean
-:LINES: 39-45
-:CHAPTER: 03 / CIRCUIT & CONTROL
-:KICKER: MODIFIERS
-:END:
-Inversion, powers, and control each retain an inner =Circuit=. In particular, =controlled= separates the control specification from the circuit being controlled.
-
-Even an =unsupported= node records its input and output interfaces. A missing target capability need not erase the surrounding structural boundaries.
-
-* Compute the circuit domain.
-:PROPERTIES:
-:FILE: QASM/IR/Circuit.lean
-:LINES: 59-69
-:CHAPTER: 03 / CIRCUIT & CONTROL
-:KICKER: DOMAIN
-:END:
-=Circuit.dom= obtains the input interface without executing a circuit. Composition takes the first circuit's domain; tensor concatenates both domains.
-
-Inversion delegates to =cod=, while control adds control wires. This total structural definition can also be unfolded in proofs.
-
-For sequential composition, \(\operatorname{dom}(g\circ f)=\operatorname{dom}(f)\). Tensor concatenates the input interfaces:
-
-\[
-\operatorname{dom}(f\otimes g)=\operatorname{dom}(f)\mathbin{+\!\!+}\operatorname{dom}(g).
-\]
-
-
-* Read the codomain structurally.
-:PROPERTIES:
-:FILE: QASM/IR/Circuit.lean
-:LINES: 71-81
-:CHAPTER: 03 / CIRCUIT & CONTROL
-:KICKER: CODOMAIN
-:END:
-=Circuit.cod= is mutually recursive with =dom=. A composition takes the second circuit's output; an inverse takes the original circuit's input.
-
-These projections do not themselves prove that a composition is well matched. Lowering is responsible for interface compatibility and valid permutations.
-
-* Separate circuits from effects.
-:PROPERTIES:
-:FILE: QASM/IR/Proc.lean
-:LINES: 86-98
-:CHAPTER: 03 / CIRCUIT & CONTROL
-:KICKER: EFFECTFUL OPERATIONS
-:END:
-=Op= represents atomic process operations: declarations, assignment, gate application, measurement, reset, allocation, and calls.
-
-Circuit composition alone cannot describe a whole program with classical state changes and measurements. The operation layer supplies the effects that structured control flow refers to.
-
-* Control flow belongs in the IR.
-:PROPERTIES:
-:FILE: QASM/IR/Proc.lean
-:LINES: 117-131
-:CHAPTER: 03 / CIRCUIT & CONTROL
-:KICKER: STRUCTURED CONTROL FLOW
-:END:
-=Proc= retains sequences, scopes, branches, switches, and loops. It also represents =breakLoop=, =continueLoop=, =returnValue=, and =endProgram= explicitly.
-
-Rather than immediately translating control flow into the host language, the IR keeps the OpenQASM program structure available as data.
-
-* Collect the compilation unit.
-:PROPERTIES:
-:FILE: QASM/IR/Program.lean
-:LINES: 33-49
-:CHAPTER: 03 / CIRCUIT & CONTROL
-:KICKER: THE COMPILATION UNIT
-:END:
-=Program= brings together the version, target configuration, origins, inputs, outputs, constants, gates, subroutines, and process body.
-
-The interpreter, diagram generator, and emitter can all consume this canonical unit without returning to the source AST or Lean elaborator state.
-
-* Read without losing locations.
-:PROPERTIES:
-:FILE: QASM/Frontend.lean
-:LINES: 44-76
-:CHAPTER: 04 / FROM SOURCE TO IR
-:KICKER: SOURCE LOCATIONS
-:END:
-The frontend defines source positions, source spans, parse errors, and token kinds. Tokens carry location information into later stages.
-
-The provenance retained by IR expressions begins here: source-to-IR correspondence is considered from the lexical boundary onward.
-
-* Build the source expression tree.
-:PROPERTIES:
-:FILE: QASM/Frontend.lean
-:LINES: 354-370
-:CHAPTER: 04 / FROM SOURCE TO IR
-:KICKER: THE SOURCE AST
-:END:
-Frontend =Expression= represents the structure of parsed source. Its role differs from the resolved =IR.Expr= we saw earlier.
-
-Successful parsing and a typed, resolved program are separate milestones. Type analysis and lowering connect the two representations.
-
-* Pass analysis results forward.
-:PROPERTIES:
-:FILE: QASM/Frontend/Typing.lean
-:LINES: 303-333
-:CHAPTER: 04 / FROM SOURCE TO IR
-:KICKER: TYPE ANALYSIS
-:END:
-The structures around =TypeAnalysis= describe input and output fields, callable signatures, and gate signatures. They carry information established during type analysis into subsequent stages.
-
-Making this boundary explicit clarifies what lowering may assume about the parsed program.
-
-* Lower into canonical IR.
-:PROPERTIES:
-:FILE: QASM/Lowering/Program.lean
-:LINES: 149-174
-:CHAPTER: 04 / FROM SOURCE TO IR
-:KICKER: LOWERING
-:END:
-=lowerProgram= assembles lowered components into =IR.Program=. Version information, target configuration, origins, and metadata move forward with the program.
-
-The body steps are combined through =programBody=. At this point the compilation unit shared by downstream consumers is complete.
-
-* Keep symbolic sizes open.
-:PROPERTIES:
-:FILE: QASM/Lowering/Program.lean
-:LINES: 187-199
-:CHAPTER: 04 / FROM SOURCE TO IR
-:KICKER: OPEN AND CLOSED PROGRAMS
-:END:
-=template= returns IR parameterized by symbolic =Size= and =Integer=. The closed =program= entry point first rejects remaining parameters, then maps the template into concrete IR.
-
-One structural grammar supports both parameterized program families and closed programs, with distinct public entry points for each.
-
-* Connect the compilation stages.
-:PROPERTIES:
-:FILE: QASM/Elaboration.lean
-:LINES: 293-313
-:CHAPTER: 04 / FROM SOURCE TO IR
-:KICKER: THE ELABORATION PIPELINE
-:END:
-=compileProgram= connects parsing, include expansion, dialect checks, type analysis, and lowering. Failures at each boundary become Lean errors.
-
-The concise =qasm!= command sits above these separate stages. Elaboration orchestrates their work rather than reimplementing every subsystem.
-
-* Generate Lean declarations.
-:PROPERTIES:
-:FILE: QASM/Elaboration.lean
-:LINES: 314-323
-:CHAPTER: 04 / FROM SOURCE TO IR
-:KICKER: GENERATED LEAN DECLARATIONS
-:END:
-After lowering succeeds, elaboration generates the Inputs and Outputs structures, the program declaration, and an execute wrapper.
-
-This is where the path returns to =Bell.program= and =Bell.execute=. Embedded OpenQASM becomes declarations that ordinary Lean code can reference.
-
-* Keep execution state separate.
-:PROPERTIES:
-:FILE: QASM/Execution/Interpreter.lean
-:LINES: 46-62
-:CHAPTER: 05 / EXECUTION & MEANING
-:KICKER: RUNTIME STATE
-:END:
-=ExecutionState= stores classical values and qubit bindings. Dedicated types distinguish ordinary control flow from interpreter signals.
-
-The IR describes a program; execution state records the information that changes as it runs. This separation lets the same IR be interpreted through different backends.
-
-* Abstract over the backend.
-:PROPERTIES:
-:FILE: QASM/Execution/Interpreter.lean
-:LINES: 723-737
-:CHAPTER: 05 / EXECUTION & MEANING
-:KICKER: THE INTERPRETER ENTRY POINT
-:END:
-=run= requires an instance of =QuantumBackend=. It initializes inputs and output defaults, evaluates the body, and returns final classical values or an error.
-
-The concrete meaning of quantum operations lies beyond that backend boundary. TraceBackend is one implementation of this abstraction.
-
-* Describe execution as a relation.
-:PROPERTIES:
-:FILE: QASM/Execution/Semantics.lean
-:LINES: 24-39
-:CHAPTER: 05 / EXECUTION & MEANING
-:KICKER: A RELATIONAL MODEL
-:END:
-=Semantics.Model= supplies relations for atomic operations, conditions, iteration domains, and other semantic ingredients. =Flow= distinguishes normal continuation, loop exits, return, and program end.
-
-This model supports reasoning about structured control independently of the executable interpreter. Its definition alone does not establish interpreter refinement.
-
-* Give control flow inference rules.
-:PROPERTIES:
-:FILE: QASM/Execution/Semantics.lean
-:LINES: 44-57
-:CHAPTER: 05 / EXECUTION & MEANING
-:KICKER: BIG-STEP EXECUTION
-:END:
-=Exec= relates a process and initial state to a final state and control-flow result. Constructors describe skip, atomic operations, sequences, scopes, and branches.
-
-Condition evaluation has an explicit intermediate state. The model is not restricted to treating a condition as a pure choice of a Boolean value.
-
-* Define the same behavior.
-:PROPERTIES:
-:FILE: QASM/Execution/Semantics.lean
-:LINES: 116-125
-:CHAPTER: 05 / EXECUTION & MEANING
-:KICKER: OBSERVATIONAL EQUIVALENCE
-:END:
-=Equivalent= requires agreement of =Exec= for every initial state, final state, and control-flow result, relative to a fixed model.
-
-The following lemma characterizes skip execution. Structured IR is not just something to run: it is also an object on which to state and prove program laws.
-
-* Emit OpenQASM from IR.
-:PROPERTIES:
-:FILE: QASM/Emit/OpenQASM.lean
-:LINES: 603-624
-:CHAPTER: 06 / BACK TO THE WORLD
-:KICKER: CANONICAL EMISSION
-:END:
-=emitWithMode= consumes =Program= and renders the header, includes, declarations, and body as OpenQASM. =emit= selects the self-contained mode.
-
-This is emission from canonical IR rather than replay of the original source text. It reads the same program representation as the interpreter, for a different purpose.
-
-* Read, draw, and execute.
-:PROPERTIES:
-:FILE: QASM/Diagram/Model.lean
-:LINES: 56-73
-:CHAPTER: 06 / BACK TO THE WORLD
-:KICKER: ONE IR, MANY READERS
-:END:
-=CircuitDiagram= stores wires and presentation items independently of a backend. Operations retain their kind, label, operands, and glyph as rendering data.
-
-Starting with Bell, we have followed types, circuits, control, compilation, and execution. A shared IR sits at the center, read in different ways by the interpreter, emitter, and visualization layer.
-
-* The architecture, in perspective.
-:PROPERTIES:
-:CHAPTER: 07 / SUMMARY
-:KICKER: WHAT WE HAVE FOLLOWED
-:END:
-The central design choice is a shared canonical IR. Source parsing and type analysis lead into lowering; execution, emission, and diagrams consume the resulting program.
+Lean can represent a program as ordinary data and check proofs about that data. A statement about its structure, a statement about its execution, and a statement about quantum behavior have different assumptions.
 
 #+begin_src mermaid
 flowchart TD
-  Source["OpenQASM source"] --> Frontend["Parsing and type analysis"]
-  Frontend --> IR["Canonical IR"]
-  IR --> Execution["Backend execution"]
-  IR --> Emit["OpenQASM emission"]
-  IR --> Diagram["Static visualization"]
+  Source["OpenQASM source"] --> Check["Parse and type-check"]
+  Check --> IR["Canonical Lean IR"]
+  IR --> Run["Interpreter and backend"]
+  IR --> Proof["Selected program laws"]
+  IR --> View["Emission and diagrams"]
 #+end_src
 
-Circuit structure and process control remain explicit. This makes a program available both to executable consumers and to relational reasoning, while keeping the quantum backend as a separate boundary.
+We will follow those boundaries rather than walk through every implementation file.
 
-* Where to explore next.
+* Start with a circuit you recognize.
 :PROPERTIES:
-:CHAPTER: 07 / SUMMARY
-:KICKER: CONTINUE READING
+:FILE: Examples/Bell.lean
+:LINES: 38-47
+:CHAPTER: 02 / THE USER WORKFLOW
+:KICKER: 02:30–04:00
+:DURATION_SECONDS: 90
+:PRESENTER_NOTE: Spend time on the generated API, not on explaining Bell entanglement. The equation is an intended circuit interpretation, not a new correctness result.
 :END:
-Return to =Examples/Bell.lean= to connect the public commands with the layers behind them. Read =QASM/IR/Program.lean= and =QASM/IR/Proc.lean= to see the data shared by downstream consumers.
+The =qasm! Bell= command embeds OpenQASM directly in a Lean document. It allocates two qubits and applies Hadamard followed by controlled X.
 
-For compilation, follow =QASM/Elaboration.lean= into type analysis and lowering. For behavior, compare the executable interpreter with the relational semantics; a relation and an interpreter are separate artifacts, and their agreement needs its own argument.
+The command generates =Bell.program=, typed input/output structures, and =Bell.execute=. Target options and the opt-in dialect are explicit.
 
-The tour ends here, but the source remains the reference. Use the contents menu to revisit a boundary, inspect the highlighted code, and follow its definitions on GitHub.
+The intended ideal circuit prepares
+
+\[
+|\Phi^+\rangle
+=\mathrm{CNOT}(H\otimes I)|00\rangle
+=\frac{|00\rangle+|11\rangle}{\sqrt{2}}.
+\]
+
+That equation describes the intended quantum operation; the trace demonstration does not calculate or prove this state vector.
+
+* Inspect the program before running it.
+:PROPERTIES:
+:FILE: Examples/Bell.lean
+:LINES: 56-56
+:CHAPTER: 02 / THE USER WORKFLOW
+:KICKER: 04:00–05:00
+:DURATION_SECONDS: 60
+:PRESENTER_NOTE: If the infoview is already open, show the existing diagram briefly. Avoid starting a new setup or build during the prepared 30 minutes.
+:END:
+=#html Bell.program= derives a circuit diagram from the canonical IR in the Lean infoview.
+
+This is a static source view: each branch and loop body is displayed once, while calls remain named. It does not choose an input-dependent path or a measurement outcome.
+
+Inspection is therefore available independently of a device or simulator backend.
+
+* Execute through a deterministic trace.
+:PROPERTIES:
+:FILE: Examples/Bell.lean
+:LINES: 67-71
+:CHAPTER: 02 / THE USER WORKFLOW
+:KICKER: 05:00–06:30
+:DURATION_SECONDS: 90
+:PRESENTER_NOTE: Explain what can actually be demonstrated today. Do not claim that this trace establishes Bell-state fidelity or that a simulator adapter is already implemented.
+:END:
+=Bell.execute= runs through =TraceBackend.M=. The example inspects the allocated qubits; the backend also records the unitary operations requested by the interpreter.
+
+TraceBackend can supply scheduled measurement outcomes. This makes it useful for regression tests of control flow and backend effects.
+
+It records operations and outcomes without modeling a physical quantum state or a noise process. A state-vector simulator would be a separate backend implementation.
+
+* Compile once into an explicit program.
+:PROPERTIES:
+:FILE: QASM/Elaboration.lean
+:LINES: 293-313
+:CHAPTER: 03 / THE DESIGN
+:KICKER: 06:30–08:30
+:DURATION_SECONDS: 120
+:PRESENTER_NOTE: Point to the parse, analyzeTypes and Lowering.template calls. Explain the compiler boundary without narrating every line.
+:END:
+The elaborator connects parsing, include expansion, dialect checks, type analysis, and lowering. Failures become Lean diagnostics.
+
+Accepted source becomes =QASM.IR.Program=. The generated execute wrapper passes this data to the shared interpreter; it does not contain a separate copy of the source program as Lean control flow.
+
+This gives tooling a stable object to inspect and transform. It also creates a clear place to state future compiler-correctness obligations.
+
+* One IR connects several consumers.
+:PROPERTIES:
+:FILE: QASM/IR/Program.lean
+:LINES: 33-49
+:CHAPTER: 03 / THE DESIGN
+:KICKER: 08:30–10:00
+:DURATION_SECONDS: 90
+:PRESENTER_NOTE: Emphasize shared representation and inspectability. Keep source provenance distinct from the current textual type diagnostics.
+:END:
+=Program= collects declarations, typed inputs and outputs, target configuration, provenance, and the structured process body.
+
+Execution, OpenQASM emission, and visualization consume this representation. They do not each reconstruct their own program from the original text.
+
+For reasoning, the same representation is an ordinary Lean value. The representation enables precise statements; the implementation still needs proofs for whichever guarantees we want to claim.
+
+* Preserve quantum circuit structure.
+:PROPERTIES:
+:FILE: QASM/IR/Circuit.lean
+:LINES: 33-45
+:CHAPTER: 03 / THE DESIGN
+:KICKER: 10:00–12:00
+:DURATION_SECONDS: 120
+:PRESENTER_NOTE: Use the mathematical structure as a bridge to the audience. Avoid implying that every raw Circuit is well-formed or that all categorical laws have been proved.
+:END:
+=Circuit= retains sequential composition, tensor, permutation, inversion, powers, and control as distinct constructors.
+
+For sequential composition, the outer boundaries are
+
+\[
+\mathrm{dom}(g\circ f)=\mathrm{dom}(f),\qquad
+\mathrm{cod}(g\circ f)=\mathrm{cod}(g).
+\]
+
+Input/output compatibility is a lowering responsibility: the raw constructors are not intrinsically indexed by matching interfaces. These are structural projections, not a denotational model of quantum states.
+
+* Keep hybrid control flow explicit.
+:PROPERTIES:
+:FILE: QASM/IR/Proc.lean
+:LINES: 117-129
+:CHAPTER: 03 / THE DESIGN
+:KICKER: 12:00–14:00
+:DURATION_SECONDS: 120
+:PRESENTER_NOTE: Explain why a circuit-only representation is insufficient. Use measurement-conditioned control as a motivating workflow, not a new benchmark or hardware claim.
+:END:
+Quantum programs also contain classical state, conditions, loops, and subroutine calls. =Proc= preserves that structure alongside effectful atomic operations.
+
+The interpreter handles classical computation and structured control. Quantum allocation, gate application, measurement, reset, and barriers cross the backend boundary.
+
+This separation is useful for measurement-conditioned workflows: reasoning about control and specifying quantum effects become identifiable, separate tasks.
+
+* The backend boundary is small and explicit.
+:PROPERTIES:
+:FILE: QASM/Runtime.lean
+:LINES: 252-257
+:CHAPTER: 03 / THE DESIGN
+:KICKER: 14:00–16:00
+:DURATION_SECONDS: 120
+:PRESENTER_NOTE: This is a useful discussion point for interoperability. Ask about a preferred integration target later; do not turn this into a promise of an existing Cirq or device backend.
+:END:
+=QuantumBackend= exposes five operations: allocate, apply, measure, reset, and barrier. Execution is polymorphic over the monad, qubit representation, and backend error type.
+
+TraceBackend implements this interface today. An adapter to a simulator or another quantum toolchain is an integration task to evaluate, not an existing feature to assume.
+
+The interface specifies how effects are requested. It does not itself impose the physical or probabilistic laws that a quantum correctness argument would require.
+
+* Reason about a family, not only an instance.
+:PROPERTIES:
+:FILE: Tests/Parametric.lean
+:LINES: 16-26
+:CHAPTER: 04 / THE EVIDENCE
+:KICKER: 16:00–18:00
+:DURATION_SECONDS: 120
+:PRESENTER_NOTE: Distinguish family parameters, runtime inputs, and proof obligations. The example is already in the regression module.
+:END:
+Family binders introduce Lean parameters such as =n : Nat=. =Rotate.program n= retains the parameter, while =theta= is a separate runtime input.
+
+This allows propositions quantified over all sizes instead of checking only selected numerical instances. Calling the generated program function does not reparse the QASM source.
+
+The generated =Valid= predicate requires positive residual sizes. It establishes that size precondition; index safety, termination, and successful execution remain separate questions.
+
+* A real theorem, with explicit assumptions.
+:PROPERTIES:
+:FILE: Tests/Parametric.lean
+:LINES: 97-102
+:CHAPTER: 04 / THE EVIDENCE
+:KICKER: 18:00–20:30
+:DURATION_SECONDS: 150
+:PRESENTER_NOTE: Show the quantification over n and model, then the application of sequence_skip_left. Acknowledge that the law is deliberately simple: the point is the mechanism and its scope.
+:END:
+=rotate_skip_neutral= applies an existing program law to the whole open family. For every =n= and every supplied relational model, prefixing the body with =skip= preserves the model's execution relation.
+
+\[
+\forall n,\quad
+\mathrm{Equivalent}_{M}
+\bigl(\mathrm{sequence}[\mathrm{skip},\mathrm{body}_n],\mathrm{body}_n\bigr).
+\]
+
+This is a kernel-checkable theorem over program data, rather than a finite execution test. Its scope is a control-flow law relative to =M=; it does not establish a quantum algorithm's physical correctness.
+
+* Separate proof semantics from the interpreter.
+:PROPERTIES:
+:FILE: QASM/Execution/Semantics.lean
+:LINES: 24-39
+:CHAPTER: 04 / THE EVIDENCE
+:KICKER: 20:30–22:30
+:DURATION_SECONDS: 120
+:PRESENTER_NOTE: Be precise about the trusted boundary. If asked about end-to-end verification, point to the missing refinement and quantum semantic model instead of equating Lean implementation with verified behavior.
+:END:
+=Semantics.Model= supplies the meaning of operations, conditions, iteration domains, and related control-flow ingredients as relations on states.
+
+=Exec= then describes finite successful control flow. =Equivalent= compares those relations for a fixed model.
+
+The executable interpreter uses partial definitions. Refinement from that interpreter to the relational semantics remains an obligation, as do probabilistic and divergence-sensitive notions of quantum equivalence.
+
+* Different evidence answers different questions.
+:PROPERTIES:
+:CHAPTER: 04 / THE EVIDENCE
+:KICKER: 22:30–24:00
+:DURATION_SECONDS: 90
+:PRESENTER_NOTE: These counts are the repository’s documented fixture counts, not fresh coverage measurements. Do not describe them as comprehensive certification.
+:END:
+The repository combines executable regression cases and selected Lean proofs. The documented conformance checks cover the official OpenQASM 3.0 grammar fixtures.
+
+| Evidence | What it supports | Scope |
+|----------+------------------+-------|
+| 21 valid and 10 invalid grammar fixtures | Parsing and rejection behavior | Grammar fixtures |
+| Execution regressions | I/O, loops, scopes, families, and trace effects | Tested cases |
+| Lean proofs | Selected structural and control-flow laws | Stated models and assumptions |
+
+The current result is an executable, proof-oriented prototype. Full semantic conformance and end-to-end compiler/device correctness remain open work.
+
+* Return to OpenQASM at the tooling boundary.
+:PROPERTIES:
+:FILE: QASM/Emit/OpenQASM.lean
+:LINES: 603-624
+:CHAPTER: 05 / RESEARCH DIRECTIONS
+:KICKER: 24:00–25:30
+:DURATION_SECONDS: 90
+:PRESENTER_NOTE: Present integration as a focused experiment, not an already verified round trip or a drop-in replacement for an external SDK.
+:END:
+=emitWithMode= renders canonical IR back to OpenQASM. The default =emit= uses the self-contained mode.
+
+Together with the explicit backend interface, emission gives two integration surfaces: exchange a program as OpenQASM, or interpret the IR through a backend adapter.
+
+A concrete next experiment could compare emitted programs with a reference toolchain. Dialect compatibility, accepted feature subsets, and semantic comparison would need to be specified and tested.
+
+* An AI-assisted research loop.
+:PROPERTIES:
+:CHAPTER: 05 / RESEARCH DIRECTIONS
+:KICKER: 25:30–27:30
+:DURATION_SECONDS: 120
+:PRESENTER_NOTE: Connect to AI in quantum information science. Start with one meaningful acceptance criterion, rather than claiming that proof checking alone validates arbitrary generated quantum programs.
+:END:
+A proposed next step is to let AI suggest candidate programs, transformations, or supporting lemmas, while keeping acceptance criteria explicit.
+
+#+begin_src mermaid
+flowchart TD
+  AI["AI proposes a candidate"] --> Check["Parse and type-check"]
+  Check --> IR["Candidate IR"]
+  IR --> Tests["Execution tests"]
+  IR --> Proof["Proof of a stated property"]
+  Tests --> AI
+  Proof --> AI
+#+end_src
+
+This agent loop is a research direction, not an implemented autonomous system. Passing tests and proving an IR law establish different claims; a quantum-behavior claim also needs the corresponding semantics and refinement arguments.
+
+* An executable representation with visible contracts.
+:PROPERTIES:
+:CHAPTER: 06 / TAKEAWAYS
+:KICKER: 27:30–28:30
+:DURATION_SECONDS: 60
+:PRESENTER_NOTE: This is the first of the two closing pages. Recap outcomes, then move directly to discussion.
+:END:
+Three points to take away:
+
+- Familiar OpenQASM source becomes inspectable, executable Lean program data.
+- A shared IR connects hybrid control flow, backend execution, visualization, and emission.
+- Parameterized families and selected kernel-checkable laws provide a foundation for further proof work.
+
+The next research choice is which semantic contract or integration task would make that foundation useful on a realistic example.
+
+* Which first use case should drive the next step?
+:PROPERTIES:
+:CHAPTER: 06 / DISCUSSION
+:KICKER: 28:30–30:00
+:DURATION_SECONDS: 90
+:PRESENTER_NOTE: Stop the prepared talk here. Keep the appendices optional. Use the remaining 30 minutes for discussion; select a short demo only if useful.
+:END:
+Three concrete starting points for the remaining discussion:
+
+- An AI-generated OpenQASM example with an agreed acceptance criterion.
+- One transformation worth certifying, together with the semantic model its claim needs.
+- One reference toolchain or backend adapter for an interoperability experiment.
+
+Which failure mode would be most valuable to catch, and what would count as convincing evidence on a small first example?
+
+The prepared presentation ends here at 30 minutes. The remaining meeting time is available for questions and a targeted demo.
+
+* Appendix: a dependent I/O property.
+:PROPERTIES:
+:FILE: Tests/Parametric.lean
+:LINES: 88-94
+:CHAPTER: APPENDIX / OPTIONAL
+:KICKER: OPTIONAL / AFTER THE TALK
+:DURATION_SECONDS: 0
+:END:
+=Copy= has input and output widths indexed by the same Lean parameter. The =copy_input_width= and =copy_output_width= proofs unfold the generated data with =rfl=.
+
+These show that family parameters survive quotation as open Lean terms. They are representation properties, not proofs of program behavior or quantum semantics.
+
+Use this page if the discussion turns to dependent types or the difference between proving a family property and enumerating test sizes.
+
+* Appendix: substitution preserves circuit interfaces.
+:PROPERTIES:
+:FILE: QASM/IR/Substitution.lean
+:LINES: 213-223
+:CHAPTER: APPENDIX / OPTIONAL
+:KICKER: OPTIONAL / AFTER THE TALK
+:DURATION_SECONDS: 0
+:END:
+=Circuit.interfaces_map= proves preservation of domain and codomain when mapping symbolic sizes and integer values through a circuit. The following simp lemmas expose each component separately.
+
+This is an existing structural preservation theorem, proved by induction over the circuit representation.
+
+A semantics-preserving optimization would require an additional behavioral equivalence argument; interface preservation alone does not establish it.
+
+* Appendix: the support boundary.
+:PROPERTIES:
+:CHAPTER: APPENDIX / OPTIONAL
+:KICKER: OPTIONAL / AFTER THE TALK
+:DURATION_SECONDS: 0
+:END:
+Portable lowering covers typed classical values, arrays, structured control, gates, includes, and backend-facing quantum effects. Strict OpenQASM 3.0 is the default; =switch= and =nop= require the extended dialect.
+
+| Target-dependent construct | Current portable elaboration |
+|----------------------------+------------------------------|
+| Calibration and OpenPulse bodies | Rejected with a capability diagnostic |
+| Physical qubit names | Rejected with a capability diagnostic |
+| Target-relative timing and scheduling | Rejected with a capability diagnostic |
+| Extern ABI calls | Rejected with a capability diagnostic |
+
+Parsing a construct and supporting its portable execution are different milestones. The detailed matrix is maintained in =CONFORMANCE.md=.
+
+* Appendix: open obligations and a demo path.
+:PROPERTIES:
+:CHAPTER: APPENDIX / OPTIONAL
+:KICKER: OPTIONAL / AFTER THE TALK
+:DURATION_SECONDS: 0
+:END:
+Current limitations include textual type diagnostics, incomplete handling of runtime-invalid classical indexing, and target-dependent numeric choices. =Valid= addresses positive residual sizes only.
+
+Proof work remains on interpreter refinement, quantum/backend semantics, runtime safety, and richer behavioral equivalence. Device scheduling and noise models require additional target-specific work.
+
+For a focused demo, return to the Bell declaration, its static diagram and trace, or the parameterized family proof. The repository's build and test commands are:
+
+#+begin_src sh
+lake build
+lake test
+#+end_src
+
+Choose the demo to answer a question from the discussion, rather than continuing an implementation tour.
