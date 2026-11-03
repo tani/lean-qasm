@@ -25,7 +25,7 @@ We will first define the languages and representations, then follow one example 
 :END:
 Lean 4 is a dependently typed programming language and an interactive theorem prover. It can define data, compute with it, and express propositions about it.
 
-A proposition \(P\) is represented as a type in =Prop=. A proof is a term \(h : P\), whose type is checked by Lean's kernel. Tactics help construct that term.
+A proposition $P$ is represented as a type in =Prop=. A proof is a term $h : P$, whose type is checked by Lean's kernel. Tactics help construct that term.
 
 Here, Lean hosts three things: data describing quantum programs, code that processes that data, and proofs of explicitly stated properties. Implementing a program in Lean and proving a specification about it are separate tasks.
 
@@ -114,10 +114,10 @@ A gate application in a process refers to gate/circuit information; the enclosin
 
 Its =dom= and =cod= projections describe ordered wire interfaces. An interface is a list of quantum/classical wire kinds, not a quantum state or a matrix.
 
-\[
+$$
 \mathrm{dom}(g\circ f)=\mathrm{dom}(f),\qquad
 \mathrm{cod}(g\circ f)=\mathrm{cod}(g).
-\]
+$$
 
 The intended composition also requires matching intermediate interfaces. Lowering checks compatibility; the raw =compose= constructor itself does not carry a proof of that condition.
 
@@ -224,12 +224,12 @@ This Model is a semantic parameter, distinct from an executable backend. It does
 
 =Equivalent M p q= says that the two processes have exactly the same such executions:
 
-\[
+$$
 \forall \sigma,\sigma',f,\quad
 \mathrm{Exec}_{M}(p,\sigma,\sigma',f)
 \iff
 \mathrm{Exec}_{M}(q,\sigma,\sigma',f).
-\]
+$$
 
 This definition compares finite successful execution relations for a fixed model. Probabilistic observations and divergence-sensitive equivalence require their own semantic treatment.
 
@@ -242,11 +242,11 @@ This definition compares finite successful execution relations for a fixed model
 :END:
 First choose an object and a proposition about it. The object may be a parameter, an IR value, a program family, or a transformation between IR values.
 
-For a property \(P\) of programs, an individual claim has the form \(P(p)\). A family claim can have the form
+For a property $P$ of programs, an individual claim has the form $P(p)$. A family claim can have the form
 
-\[
+$$
 \forall n\in\mathbb{N},\quad P(\mathrm{program}(n)).
-\]
+$$
 
 A Lean proof constructs a term of that proposition, checked against the definitions and assumptions it uses. Executing several instances and inspecting their outputs is a different form of evidence.
 
@@ -280,12 +280,12 @@ The generated =Valid= predicate specifies positive residual sizes. The program d
 - Claim: the first input and output declarations have the resolved type =bit[n]=.
 - Proof: =copy_input_width= and =copy_output_width= use =rfl=; the equalities hold by unfolding the generated definitions.
 
-Writing \(\mathrm{inputType}(p)\) for the first input declaration's type, one claim is
+Writing $\mathrm{inputType}(p)$ for the first input declaration's type, one claim is
 
-\[
+$$
 \forall n\in\mathbb{N},\quad
 \mathrm{inputType}(\mathrm{Copy.program}(n))=\mathrm{bit}[n].
-\]
+$$
 
 This proves a representation property for every size. It does not assert that execution copies values correctly; that would be a separate behavioral proposition.
 
@@ -315,15 +315,15 @@ It illustrates how a generated obligation can be stated and discharged separatel
 :DURATION_SECONDS: 120
 :PRESENTER_NOTE: Show how the general law applies to open program data. This is the main behavioral proof example; keep its model and execution notion visible.
 :END:
-- Object: the process body \(p_n\) of =Rotate.program n= and the transformed body with a leading =skip=.
+- Object: the process body $p_n$ of =Rotate.program n= and the transformed body with a leading =skip=.
 - Claim: they satisfy =Equivalent M= for every =n= and supplied relational model =M=.
 - Proof: =rotate_skip_neutral= instantiates the general =sequence_skip_left= theorem.
 
-\[
+$$
 \forall n,M,\quad
 \mathrm{Equivalent}_{M}
 \bigl(\mathrm{sequence}[\mathrm{skip},p_n],p_n\bigr).
-\]
+$$
 
 By the previous definition, this compares all initial states, final states, and flow results of those finite executions. It is a behavioral law in the stated model; a connection to the executable interpreter still requires refinement.
 
@@ -340,10 +340,10 @@ By the previous definition, this compares all initial states, final states, and 
 - Claim: the mapped circuit has the same domain and codomain interfaces.
 - Proof: =Circuit.interfaces_map= uses structural induction; the following lemmas expose each part.
 
-\[
+$$
 \mathrm{dom}(\mathrm{map}_{f,g}(c))=\mathrm{dom}(c),\qquad
 \mathrm{cod}(\mathrm{map}_{f,g}(c))=\mathrm{cod}(c).
-\]
+$$
 
 Evaluating symbolic sizes and integers is one use of this map. Interface preservation is a structural invariant; equivalence of quantum behavior is a different specification.
 
@@ -418,10 +418,10 @@ The prepared presentation ends here at 30 minutes. The remaining time is for que
 :END:
 A prospective specification for the ideal two-qubit circuit fragment is
 
-\[
-\llbracket c_{\mathrm{Bell}}\rrbracket |00\rangle
+$$
+\lbrack\!\lbrack c_{\mathrm{Bell}}\rbrack\!\rbrack |00\rangle
 =\frac{|00\rangle+|11\rangle}{\sqrt{2}}.
-\]
+$$
 
 Here the brackets would need a defined ideal quantum denotation. We would also need to connect the selected circuit fragment to the embedded program, accounting for allocation and the compilation steps.
 
@@ -437,11 +437,11 @@ This is a possible future theorem target, not an existing LeanQASM theorem. A no
 :END:
 A compiler-correctness statement would relate source and IR semantics, for example
 
-\[
-\llbracket \mathrm{lower}(s)\rrbracket_{\mathrm{IR}}
+$$
+\lbrack\!\lbrack \mathrm{lower}(s)\rbrack\!\rbrack_{\mathrm{IR}}
 \approx
-\llbracket s\rrbracket_{\mathrm{source}}.
-\]
+\lbrack\!\lbrack s\rbrack\!\rbrack_{\mathrm{source}}.
+$$
 
 Such a theorem must state its accepted source subset, well-formedness assumptions, semantic interpretations, and observations compared by the equivalence.
 
@@ -472,3 +472,4 @@ The shared Program can be emitted as OpenQASM or interpreted through a backend. 
 Portable elaboration rejects target-dependent extern calls, calibration/OpenPulse bodies, physical qubit names, and target-relative timing with capability diagnostics. The detailed support matrix is in =CONFORMANCE.md=.
 
 For discussion, revisit the Bell diagram and trace, the dependent I/O theorem, or the control-flow law. These demonstrate different objects and claims; choose the example that answers the question.
+
